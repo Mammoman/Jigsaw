@@ -427,7 +427,7 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
       }
     }
 
-    lastPointerPos.current = null;
+    lastPointerPos.current = { x: 0, y: 0 };
     canvasRef.current?.releasePointerCapture(e.pointerId);
   };
 
