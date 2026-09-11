@@ -1,42 +1,73 @@
-import usePartySocket from "partysocket/react";
+import { useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase/client";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
+
+const CHANNEL_PREFIX = "puzzle-room";
 
 export function usePuzzleMultiplayer(roomId: string) {
   const {
     updateRemoteCursor,
     removeRemoteCursor,
     mergeGroups,
-    applyRemoteDrag
+    applyRemoteDrag,
+    username,
   } = usePuzzleStore();
 
-  const socket = usePartySocket({
-    // We default to the local PartyKit server if no env var is provided
-    host: process.env.NEXT_PUBLIC_PARTYKIT_HOST || "localhost:1999",
-    room: roomId,
-    onMessage(e) {
-      const data = JSON.parse(e.data);
-      if (data.type === "POINTER_MOVE") {
-        updateRemoteCursor(data.payload.id, data.payload.x, data.payload.y, data.payload.color);
-      } else if (data.type === "PEER_LEFT") {
-        removeRemoteCursor(data.payload.id);
-      } else if (data.type === "DRAG_STREAM") {
-        applyRemoteDrag(data.payload.groupId, data.payload.dx, data.payload.dy);
-      } else if (data.type === "MERGE_NOTIFY") {
-        mergeGroups(data.payload.groupIdToKeep, data.payload.groupIdToMerge, data.payload.snapDx, data.payload.snapDy);
-      }
-    }
-  });
+  const myId = useRef<string>(`user-${Math.random().toString(36).slice(2, 8)}`).current;
+  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
-  const sendPointerMove = (x: number, y: number, color: string) => {
-    socket.send(JSON.stringify({ type: "POINTER_MOVE", payload: { id: socket.id, x, y, color } }));
+  useEffect(() => {
+    if (!roomId || roomId === "default") return;
+
+    const channel = supabase.channel(`${CHANNEL_PREFIX}:${roomId}`, {
+      config: { broadcast: { self: false } },
+    });
+
+    channel
+      .on("broadcast", { event: "POINTER_MOVE" }, ({ payload }) => {
+        updateRemoteCursor(payload.id, payload.x, payload.y, payload.color, payload.username);
+      })
+      .on("broadcast", { event: "DRAG_STREAM" }, ({ payload }) => {
+        applyRemoteDrag(payload.groupId, payload.dx, payload.dy);
+      })
+      .on("broadcast", { event: "MERGE_NOTIFY" }, ({ payload }) => {
+        mergeGroups(payload.groupIdToKeep, payload.groupIdToMerge, payload.snapDx, payload.snapDy);
+      })
+      .on("presence", { event: "leave" }, ({ leftPresences }) => {
+        leftPresences.forEach((p: any) => removeRemoteCursor(p.userId));
+      })
+      .subscribe();
+
+    channelRef.current = channel;
+
+    return () => {
+      supabase.removeChannel(channel);
+      channelRef.current = null;
+    };
+  }, [roomId]);
+
+  const sendPointerMove = (x: number, y: number, color: string, uname: string | null) => {
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "POINTER_MOVE",
+      payload: { id: myId, x, y, color, username: uname },
+    });
   };
 
   const sendDragStream = (groupId: string, dx: number, dy: number) => {
-    socket.send(JSON.stringify({ type: "DRAG_STREAM", payload: { groupId, dx, dy } }));
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "DRAG_STREAM",
+      payload: { groupId, dx, dy },
+    });
   };
 
   const sendMergeNotify = (groupIdToKeep: string, groupIdToMerge: string, snapDx: number, snapDy: number) => {
-    socket.send(JSON.stringify({ type: "MERGE_NOTIFY", payload: { groupIdToKeep, groupIdToMerge, snapDx, snapDy } }));
+    channelRef.current?.send({
+      type: "broadcast",
+      event: "MERGE_NOTIFY",
+      payload: { groupIdToKeep, groupIdToMerge, snapDx, snapDy },
+    });
   };
 
   return { sendPointerMove, sendDragStream, sendMergeNotify };

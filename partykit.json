@@ -1,4 +1,0 @@
-{
-  "name": "jigsaw-multiplayer",
-  "main": "src/party/server.ts"
-}

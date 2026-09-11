@@ -20,11 +20,11 @@ export default function Dock() {
   };
 
   return (
-    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 pointer-events-none z-10">
-      <div className="bg-black/60 backdrop-blur-md rounded-2xl p-2 flex items-center gap-2 pointer-events-auto border border-white/10 shadow-2xl">
+    <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 pointer-events-none z-10">
+      <div className="bg-black/60 backdrop-blur-md rounded-2xl p-1.5 sm:p-2 flex items-center gap-1 sm:gap-2 pointer-events-auto border border-white/10 shadow-2xl">
         <button
           onClick={toggleGhostImage}
-          className={`p-3 rounded-xl transition-colors ${ghostImageVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10 text-white"}`}
+          className={`p-3.5 sm:p-3 rounded-xl transition-colors ${ghostImageVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10 text-white"}`}
           title="Toggle Ghost Image"
         >
           <ImageIcon className="w-5 h-5" />
@@ -39,7 +39,7 @@ export default function Dock() {
         <div className="w-px h-6 bg-white/20 mx-1" />
         <button
           onClick={handleZoomIn}
-          className="p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
+          className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
           title="Zoom In"
         >
           <ZoomIn className="w-5 h-5" />
@@ -47,7 +47,7 @@ export default function Dock() {
         <div className="w-px h-6 bg-white/20 mx-1" />
         <button
           onClick={handleZoomOut}
-          className="p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
+          className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
           title="Zoom Out"
         >
           <ZoomOut className="w-5 h-5" />

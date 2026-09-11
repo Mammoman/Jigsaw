@@ -25,6 +25,7 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     image,
     panCamera,
     zoomCamera,
+    setCamera,
     startGroupDrag,
     updateGroupDrag,
     endGroupDrag,
@@ -32,6 +33,8 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     activeDragGroupId,
     ghostImageVisible,
     showEdgesOnly,
+    username,
+    puzzleId,
   } = usePuzzleStore();
 
   const [initialized, setInitialized] = useState(false);
@@ -39,8 +42,16 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
   const pieceDimensions = useRef({ width: 0, height: 0 });
   const gridDimensions = useRef({ rows: 0, cols: 0 });
 
-  const { sendPointerMove, sendDragStream, sendMergeNotify } = usePuzzleMultiplayer("puzzle-room-1");
+  const { sendPointerMove, sendDragStream, sendMergeNotify } = usePuzzleMultiplayer(puzzleId || "default");
   const myColor = useRef(`hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`).current;
+
+  // Interaction state
+  const isPointerDown = useRef(false);
+  const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const initialPinchDist = useRef<number | null>(null);
+  const initialPinchScale = useRef<number | null>(null);
+  const lastPointerPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
 
   useEffect(() => {
     const img = new Image();
@@ -83,6 +94,22 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
       vTabs.push(colTabs);
     }
 
+    const scatterPieces = (piecesObj: Record<string, PieceRuntimeState>) => {
+      const boardWidth = cols * pWidth;
+      const boardHeight = rows * pHeight;
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      
+      Object.values(piecesObj).forEach(p => {
+        // Scatter around the perimeter of the board
+        const angle = random() * Math.PI * 2;
+        const dist = Math.max(boardWidth, boardHeight) / 2 + 100 + random() * (Math.max(w, h) / 2);
+        
+        p.x = boardWidth / 2 + Math.cos(angle) * dist - pWidth / 2;
+        p.y = boardHeight / 2 + Math.sin(angle) * dist - pHeight / 2;
+      });
+    };
+
     const newPieces: Record<string, PieceRuntimeState> = {};
     const newRenderOrder: string[] = [];
 
@@ -98,21 +125,27 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
         const path = createPiecePath(pWidth, pHeight, { top, right, bottom, left });
         piecePathsRef.current[id] = path;
 
-        // Scatter starting positions
-        const startX = c * pWidth * 1.1 + 100;
-        const startY = r * pHeight * 1.1 + 100;
-
         newPieces[id] = {
           id,
           row: r,
           col: c,
-          x: startX,
-          y: startY,
+          x: 0,
+          y: 0,
           groupId: id,
         };
         newRenderOrder.push(id);
       }
     }
+
+    scatterPieces(newPieces);
+
+    const startX = window.innerWidth / 2 - (cols * pWidth) / 2;
+    const startY = window.innerHeight / 2 - (rows * pHeight) / 2;
+    
+    // Zoom out a bit to see the scattered pieces
+    usePuzzleStore.setState({ 
+      camera: { x: startX, y: startY, scale: 0.6 } 
+    });
 
     setPieces(newPieces, newRenderOrder);
     setInitialized(true);
@@ -190,9 +223,6 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     return () => cancelAnimationFrame(animationFrameId);
   }, [initialized, image, camera, pieces, renderOrder, activeDragGroupId]);
 
-  const [isPanning, setIsPanning] = useState(false);
-  const lastPointerPos = useRef<{ x: number; y: number } | null>(null);
-
   const getPointerPos = (e: React.PointerEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
     return {
@@ -202,11 +232,25 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
   };
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    e.preventDefault();
-    canvasRef.current?.setPointerCapture(e.pointerId);
-
-    const pos = getPointerPos(e);
+    e.currentTarget.setPointerCapture(e.pointerId);
+    isPointerDown.current = true;
+    const pos = { x: e.clientX, y: e.clientY };
     lastPointerPos.current = pos;
+    activePointers.current.set(e.pointerId, pos);
+
+    if (activePointers.current.size === 2) {
+      // Start pinch-to-zoom
+      const pts = Array.from(activePointers.current.values());
+      initialPinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      initialPinchScale.current = camera.scale;
+      setIsPanning(false);
+      if (activeDragGroupId) {
+        endGroupDrag();
+      }
+      return;
+    }
+
+    if (activePointers.current.size > 2) return;
 
     if (e.button === 1 || e.button === 2) {
       setIsPanning(true);
@@ -216,13 +260,15 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     const ctx = canvasRef.current!.getContext("2d");
     if (!ctx) return;
 
+    const canvasPos = getPointerPos(e);
+
     for (let i = renderOrder.length - 1; i >= 0; i--) {
       const id = renderOrder[i];
       const p = pieces[id];
       const path = piecePathsRef.current[id];
 
-      const worldX = (pos.x - camera.x) / camera.scale;
-      const worldY = (pos.y - camera.y) / camera.scale;
+      const worldX = (canvasPos.x - camera.x) / camera.scale;
+      const worldY = (canvasPos.y - camera.y) / camera.scale;
 
       const localX = worldX - p.x;
       const localY = worldY - p.y;
@@ -231,7 +277,7 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
       ctx.resetTransform();
       if (ctx.isPointInPath(path, localX, localY)) {
         ctx.restore();
-        startGroupDrag(p.groupId, pos);
+        startGroupDrag(p.groupId, canvasPos);
         return;
       }
       ctx.restore();
@@ -241,8 +287,42 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!lastPointerPos.current) return;
-    const pos = getPointerPos(e);
+    const pos = { x: e.clientX, y: e.clientY };
+    
+    if (activePointers.current.has(e.pointerId)) {
+      activePointers.current.set(e.pointerId, pos);
+    }
+
+    if (activePointers.current.size === 2 && initialPinchDist.current !== null && initialPinchScale.current !== null) {
+      // Handle pinch-to-zoom
+      const pts = Array.from(activePointers.current.values());
+      const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+      const scaleFactor = currentDist / initialPinchDist.current;
+      const newScale = Math.min(Math.max(0.1, initialPinchScale.current * scaleFactor), 5);
+      
+      const focalX = (pts[0].x + pts[1].x) / 2;
+      const focalY = (pts[0].y + pts[1].y) / 2;
+
+      const ds = newScale - camera.scale;
+      const dx = -(focalX - camera.x) * (ds / camera.scale);
+      const dy = -(focalY - camera.y) * (ds / camera.scale);
+
+      setCamera({
+        x: camera.x + dx,
+        y: camera.y + dy,
+        scale: newScale
+      });
+      return;
+    }
+
+    if (!isPointerDown.current || activePointers.current.size !== 1) {
+      // Just hovering
+      const canvasPos = getPointerPos(e);
+      const worldX = (canvasPos.x - camera.x) / camera.scale;
+      const worldY = (canvasPos.y - camera.y) / camera.scale;
+      sendPointerMove(worldX, worldY, myColor, username);
+      return;
+    }
 
     if (isPanning) {
       const dx = pos.x - lastPointerPos.current.x;
@@ -250,18 +330,33 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
       panCamera(dx, dy);
       lastPointerPos.current = pos;
     } else if (activeDragGroupId) {
+      const canvasPos = getPointerPos(e);
       const dx = (pos.x - lastPointerPos.current.x) / camera.scale;
       const dy = (pos.y - lastPointerPos.current.y) / camera.scale;
-      updateGroupDrag(pos);
+      updateGroupDrag(canvasPos);
       sendDragStream(activeDragGroupId, dx, dy);
+      lastPointerPos.current = pos;
     }
 
-    const worldX = (pos.x - camera.x) / camera.scale;
-    const worldY = (pos.y - camera.y) / camera.scale;
-    sendPointerMove(worldX, worldY, myColor);
+    const canvasPos = getPointerPos(e);
+    const worldX = (canvasPos.x - camera.x) / camera.scale;
+    const worldY = (canvasPos.y - camera.y) / camera.scale;
+    sendPointerMove(worldX, worldY, myColor, username);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    activePointers.current.delete(e.pointerId);
+
+    if (activePointers.current.size < 2) {
+      initialPinchDist.current = null;
+      initialPinchScale.current = null;
+    }
+
+    if (activePointers.current.size === 0) {
+      isPointerDown.current = false;
+    }
+
     if (isPanning) {
       setIsPanning(false);
     }

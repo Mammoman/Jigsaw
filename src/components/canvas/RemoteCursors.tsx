@@ -28,7 +28,7 @@ export default function RemoteCursors() {
               className="mt-1 ml-4 px-2 py-0.5 text-[10px] font-semibold text-white rounded shadow-md whitespace-nowrap"
               style={{ backgroundColor: cursor.color }}
             >
-              Player {id.slice(0, 4)}
+              {cursor.username || `Player ${id.slice(0, 4)}`}
             </div>
           </div>
         );
