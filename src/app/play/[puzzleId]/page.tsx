@@ -1,3 +1,4 @@
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
 import { useEffect, useState, use, useCallback } from "react";
@@ -106,7 +107,7 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
             className="bg-[#1a1a1a] border border-white/10 p-6 sm:p-8 rounded-2xl shadow-2xl flex flex-col gap-5 w-full max-w-sm"
           >
             <div>
-              <h2 className="text-xl font-bold text-white">What's your name?</h2>
+              <h2 className="text-xl font-bold text-white">What&apos;s your name?</h2>
               <p className="text-white/40 text-sm mt-1">
                 Other players will see this above your cursor.
               </p>

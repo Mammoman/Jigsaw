@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 
@@ -14,8 +14,8 @@ export function usePuzzleMultiplayer(roomId: string) {
     setPlayerCount,
   } = usePuzzleStore();
 
-  const myId = useRef<string>(`user-${Math.random().toString(36).slice(2, 8)}`).current;
-  const myColor = useRef(`hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`).current;
+  const [myId] = useState(() => `user-${Math.random().toString(36).slice(2, 8)}`);
+  const [myColor] = useState(() => `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`);
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
@@ -41,7 +41,7 @@ export function usePuzzleMultiplayer(roomId: string) {
         setPlayerCount(Object.keys(state).length);
       })
       .on("presence", { event: "leave" }, ({ leftPresences }) => {
-        leftPresences.forEach((p: any) => removeRemoteCursor(p.userId));
+        leftPresences.forEach((p: { userId: string }) => removeRemoteCursor(p.userId));
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {
@@ -60,6 +60,7 @@ export function usePuzzleMultiplayer(roomId: string) {
       channelRef.current = null;
       setPlayerCount(0);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId]);
 
   // Re-track when the user sets their display name
@@ -67,6 +68,7 @@ export function usePuzzleMultiplayer(roomId: string) {
     if (channelRef.current && username) {
       channelRef.current.track({ userId: myId, username, color: myColor });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [username]);
 
   const sendPointerMove = (x: number, y: number, color: string, uname: string | null) => {

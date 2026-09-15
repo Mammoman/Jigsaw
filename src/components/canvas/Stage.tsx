@@ -52,16 +52,6 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
   const lastPointerPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState(false);
 
-  useEffect(() => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = imageUrl;
-    img.onload = () => {
-      setImage(img);
-      initializeBoard(img);
-    };
-  }, [imageUrl]);
-
   const initializeBoard = (img: HTMLImageElement) => {
     const aspectRatio = img.width / img.height;
 
@@ -149,6 +139,17 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
     setPieces(newPieces, newRenderOrder);
     setInitialized(true);
   };
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = imageUrl;
+    img.onload = () => {
+      setImage(img);
+      initializeBoard(img);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageUrl]);
 
   useEffect(() => {
     if (!initialized || !image || !canvasRef.current) return;
@@ -362,7 +363,7 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
 
     const playSnapSound = () => {
       try {
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+        const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
         if (!AudioContext) return;
         const audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
@@ -380,7 +381,7 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
         
         osc.start();
         osc.stop(audioCtx.currentTime + 0.1);
-      } catch (e) {
+      } catch {
         // Ignore audio errors
       }
     };

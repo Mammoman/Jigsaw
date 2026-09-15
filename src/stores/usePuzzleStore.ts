@@ -50,7 +50,7 @@ interface PuzzleState {
   removeRemoteCursor: (id: string) => void;
 }
 
-export const usePuzzleStore = create<PuzzleState>((set, get) => ({
+export const usePuzzleStore = create<PuzzleState>((set) => ({
   puzzleId: null,
   username: null,
   seed: 42,
@@ -121,7 +121,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     };
   }),
 
-  endGroupDrag: () => set((state) => {
+  endGroupDrag: () => set(() => {
     return {
       activeDragGroupId: null,
       lastDragPos: null
