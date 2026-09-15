@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState, use, useCallback } from "react";
+import Link from "next/link";
 import Stage from "@/components/canvas/Stage";
 import TopNav from "@/components/hud/TopNav";
 import Dock from "@/components/hud/Dock";
@@ -9,70 +10,89 @@ import RemoteCursors from "@/components/canvas/RemoteCursors";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 import { usePuzzleMultiplayer } from "@/hooks/usePuzzleMultiplayer";
 import { supabase } from "@/lib/supabase/client";
+import { computeGrid } from "@/utils/boardGenerator";
 
-export default function PlayPage({ params }: { params: Promise<{ puzzleId: string }> }) {
+interface PuzzleRow {
+  id: string;
+  image_url: string;
+  target_pieces: number;
+  actual_rows: number | null;
+  actual_cols: number | null;
+  seed: number | string;
+  aspect_ratio: number;
+}
+
+export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const { puzzleId } = use(params);
 
-  const { loadSavedGame, clearSavedGame, setPuzzleId, username, setUsername, playerCount } =
-    usePuzzleStore();
+  const username = usePuzzleStore((s) => s.username);
+  const playerCount = usePuzzleStore((s) => s.playerCount);
+  const setUsername = usePuzzleStore((s) => s.setUsername);
 
-  const { sendPointerMove, sendDragStream, sendMergeNotify, myColor } =
+  const { sendPointerMove, sendGroupMove, sendGroupMerge, sendReset } =
     usePuzzleMultiplayer(puzzleId);
 
-  const [shouldLoad, setShouldLoad] = useState<boolean | null>(null);
-  const [puzzleMetadata, setPuzzleMetadata] = useState<any>(null);
-  const [showUsernameModal, setShowUsernameModal] = useState(false);
+  const [saveChecked, setSaveChecked] = useState(false);
+  const [puzzle, setPuzzle] = useState<PuzzleRow | null>(null);
+  const [notFound, setNotFound] = useState(false);
   const [tempName, setTempName] = useState("");
   const [copied, setCopied] = useState(false);
+  // Once the game has started it stays started, even if the other player drops.
+  const [hasStarted, setHasStarted] = useState(false);
 
   // Fetch puzzle metadata from Supabase
   useEffect(() => {
-    const fetchPuzzle = async () => {
-      const { data, error } = await supabase
-        .from("puzzles")
-        .select("*")
-        .eq("id", puzzleId)
-        .single();
-      if (error || !data) {
-        alert("Puzzle not found!");
-        return;
-      }
-      setPuzzleMetadata(data);
+    let cancelled = false;
+    supabase
+      .from("puzzles")
+      .select("id,image_url,target_pieces,actual_rows,actual_cols,seed,aspect_ratio")
+      .eq("id", puzzleId)
+      .single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data) {
+          setNotFound(true);
+          return;
+        }
+        setPuzzle(data as PuzzleRow);
+      });
+    return () => {
+      cancelled = true;
     };
-    fetchPuzzle();
   }, [puzzleId]);
 
-  // Set puzzleId, prompt for username, check for saved game
+  // Bind the store to this puzzle and offer to resume a local save (once).
   useEffect(() => {
+    const { setPuzzleId, loadSavedGame, clearSavedGame } = usePuzzleStore.getState();
     setPuzzleId(puzzleId);
 
-    if (!username) {
-      setShowUsernameModal(true);
-    }
-
-    import("idb-keyval").then(({ get }) => {
-      get(`puzzle-${puzzleId}`).then((saved) => {
-        if (saved) {
-          const restore = window.confirm(
-            "You have an unfinished puzzle. Would you like to resume?"
-          );
-          if (restore) {
-            loadSavedGame(puzzleId).then(() => setShouldLoad(true));
+    let cancelled = false;
+    import("idb-keyval").then(({ get }) =>
+      get(`puzzle-${puzzleId}`).then(async (saved) => {
+        if (cancelled) return;
+        // If a peer already handed us the live board, the local save is stale.
+        if (saved && !usePuzzleStore.getState().remoteSynced) {
+          if (window.confirm("You have an unfinished puzzle. Would you like to resume?")) {
+            await loadSavedGame(puzzleId);
           } else {
-            clearSavedGame(puzzleId).then(() => setShouldLoad(true));
+            await clearSavedGame(puzzleId);
           }
-        } else {
-          setShouldLoad(true);
         }
-      });
-    });
-  }, [puzzleId, setPuzzleId, loadSavedGame, clearSavedGame, username]);
+        if (!cancelled) setSaveChecked(true);
+      })
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [puzzleId]);
+
+  // Latch on the first time a second player shows up (render-time state adjustment, per React docs).
+  if (playerCount >= 2 && !hasStarted) setHasStarted(true);
 
   const handleJoin = (e: React.FormEvent) => {
     e.preventDefault();
     if (tempName.trim()) {
       setUsername(tempName.trim());
-      setShowUsernameModal(false);
     }
   };
 
@@ -82,8 +102,32 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
+  const handleReset = useCallback(() => {
+    if (!window.confirm("Scatter all pieces and start over for everyone in this room?")) return;
+    usePuzzleStore.getState().resetBoard();
+    sendReset();
+  }, [sendReset]);
+
+  // ── Not found ──────────────────────────────────────────────────
+  if (notFound) {
+    return (
+      <div className="w-screen h-[100dvh] bg-[#111] flex items-center justify-center px-6">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <h1 className="text-xl font-bold text-white">Puzzle not found</h1>
+          <p className="text-white/40 text-sm">This link may be wrong or the puzzle was removed.</p>
+          <Link
+            href="/"
+            className="mt-2 bg-white text-black font-semibold py-2.5 px-5 rounded-lg hover:bg-white/90 transition-colors text-sm"
+          >
+            Create a new puzzle
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   // ── Loading state ──────────────────────────────────────────────
-  if (!shouldLoad || !puzzleMetadata) {
+  if (!saveChecked || !puzzle) {
     return (
       <div className="w-screen h-[100dvh] bg-[#111] flex items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -94,8 +138,12 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
     );
   }
 
-  // ── Lobby: waiting for second player ──────────────────────────
-  const isGameReady = playerCount >= 2;
+  const grid =
+    puzzle.actual_rows && puzzle.actual_cols
+      ? { rows: puzzle.actual_rows, cols: puzzle.actual_cols }
+      : computeGrid(puzzle.target_pieces, puzzle.aspect_ratio);
+  const seed = Number(puzzle.seed) || 42;
+  const showUsernameModal = !username;
 
   return (
     <main className="w-screen h-[100dvh] overflow-hidden bg-[#111] relative">
@@ -115,6 +163,7 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
             <input
               autoFocus
               type="text"
+              maxLength={24}
               className="px-4 py-2.5 rounded-lg bg-black/50 text-white border border-white/15 outline-none focus:border-white/40 transition-colors placeholder:text-white/25"
               placeholder="Your name…"
               value={tempName}
@@ -131,22 +180,14 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
         </div>
       )}
 
-      {/* Lobby overlay — shown until both players are present */}
-      {!isGameReady && !showUsernameModal && (
+      {/* Lobby overlay — shown until a second player arrives or the host starts solo */}
+      {!hasStarted && !showUsernameModal && (
         <div className="absolute inset-0 z-40 flex items-center justify-center bg-[#111]">
           <div className="flex flex-col items-center gap-8 max-w-sm w-full px-6">
-            {/* Puzzle thumbnail */}
-            {puzzleMetadata?.image_url && (
-              <div className="w-32 h-32 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
-                <img
-                  src={puzzleMetadata.image_url}
-                  alt="Puzzle"
-                  className="w-full h-full object-cover"
-                />
-              </div>
-            )}
+            <div className="w-32 h-32 rounded-2xl overflow-hidden border border-white/10 shadow-2xl">
+              <img src={puzzle.image_url} alt="Puzzle" className="w-full h-full object-cover" />
+            </div>
 
-            {/* Waiting indicator */}
             <div className="flex flex-col items-center gap-3 text-center">
               <div className="flex gap-1.5">
                 {[0, 1, 2].map((i) => (
@@ -163,7 +204,6 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
               </p>
             </div>
 
-            {/* Player count pill */}
             <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-full px-5 py-2">
               <div className="flex gap-1">
                 {[0, 1].map((i) => (
@@ -175,12 +215,9 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
                   />
                 ))}
               </div>
-              <span className="text-white/60 text-sm font-medium">
-                {playerCount} / 2 players
-              </span>
+              <span className="text-white/60 text-sm font-medium">{playerCount} / 2 players</span>
             </div>
 
-            {/* Copy link */}
             <div className="w-full flex flex-col gap-2">
               <button
                 onClick={handleCopyLink}
@@ -192,6 +229,12 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
               >
                 {copied ? "✓ Link copied!" : "📋 Copy invite link"}
               </button>
+              <button
+                onClick={() => setHasStarted(true)}
+                className="w-full py-2.5 rounded-xl text-sm text-white/40 hover:text-white transition-colors"
+              >
+                Start without waiting
+              </button>
               <p className="text-white/20 text-xs text-center">
                 Anyone with this link can join and solve with you
               </p>
@@ -200,27 +243,23 @@ export default function PlayPage({ params }: { params: Promise<{ puzzleId: strin
         </div>
       )}
 
-      {/* Game UI — always rendered once shouldLoad is true, but visually hidden until ready */}
-      {isGameReady && (
+      {hasStarted && (
         <>
           <TopNav />
           <div className="absolute top-16 right-3 z-10 w-24 sm:w-36 md:w-48 rounded-lg shadow-2xl border-2 border-[#2a2a2a] overflow-hidden pointer-events-none opacity-70 hover:opacity-100 transition-opacity">
-            <img
-              src={puzzleMetadata.image_url}
-              alt="Reference"
-              className="w-full h-auto"
-            />
+            <img src={puzzle.image_url} alt="Reference" className="w-full h-auto" />
           </div>
           <RemoteCursors />
           <Stage
-            imageUrl={puzzleMetadata.image_url}
-            targetPieces={puzzleMetadata.target_pieces}
+            imageUrl={puzzle.image_url}
+            seed={seed}
+            rows={grid.rows}
+            cols={grid.cols}
             sendPointerMove={sendPointerMove}
-            sendDragStream={sendDragStream}
-            sendMergeNotify={sendMergeNotify}
-            myColor={myColor}
+            sendGroupMove={sendGroupMove}
+            sendGroupMerge={sendGroupMerge}
           />
-          <Dock />
+          <Dock onReset={handleReset} />
         </>
       )}
     </main>

@@ -1,48 +1,65 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { usePuzzleStore } from "@/stores/usePuzzleStore";
-import { PieceRuntimeState } from "@/types/puzzle";
+import { PiecePositions, usePuzzleStore } from "@/stores/usePuzzleStore";
 import { createPiecePath } from "@/utils/bezierGenerator";
 import { checkSnap } from "@/utils/snapEngine";
-import { mulberry32 } from "@/utils/random";
+import { BoardConfig, generatePieces, generateTabs } from "@/utils/boardGenerator";
 
 interface StageProps {
   imageUrl: string;
-  targetPieces?: number;
-  sendPointerMove: (x: number, y: number, color: string, uname: string | null) => void;
-  sendDragStream: (groupId: string, dx: number, dy: number) => void;
-  sendMergeNotify: (groupIdToKeep: string, groupIdToMerge: string, snapDx: number, snapDy: number) => void;
-  myColor: string;
+  seed: number;
+  rows: number;
+  cols: number;
+  sendPointerMove: (x: number, y: number) => void;
+  sendGroupMove: (anchorId: string, x: number, y: number, force?: boolean) => void;
+  sendGroupMerge: (groupId: string, positions: PiecePositions) => void;
 }
 
-export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, sendDragStream, sendMergeNotify, myColor }: StageProps) {
+const MIN_SCALE = 0.1;
+const MAX_SCALE = 5;
+
+function playSnapSound() {
+  try {
+    const audioCtx = new AudioContext();
+    const osc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
+
+    gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+
+    osc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    osc.start();
+    osc.stop(audioCtx.currentTime + 0.1);
+  } catch {
+    // Ignore audio errors
+  }
+}
+
+/**
+ * The whole game surface. Deliberately does not subscribe to the store via
+ * React: input handlers and the render loop read `usePuzzleStore.getState()`
+ * directly so a 60 Hz drag doesn't re-render the React tree.
+ */
+export default function Stage({
+  imageUrl,
+  seed,
+  rows,
+  cols,
+  sendPointerMove,
+  sendGroupMove,
+  sendGroupMerge,
+}: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  const {
-    pieces,
-    renderOrder,
-    camera,
-    setPieces,
-    setImage,
-    image,
-    panCamera,
-    zoomCamera,
-    setCamera,
-    startGroupDrag,
-    updateGroupDrag,
-    endGroupDrag,
-    mergeGroups,
-    activeDragGroupId,
-    ghostImageVisible,
-    showEdgesOnly,
-    username,
-  } = usePuzzleStore();
-
   const [initialized, setInitialized] = useState(false);
   const piecePathsRef = useRef<Record<string, Path2D>>({});
-  const pieceDimensions = useRef({ width: 0, height: 0 });
-  const gridDimensions = useRef({ rows: 0, cols: 0 });
+  const configRef = useRef<BoardConfig | null>(null);
 
   // Interaction state
   const isPointerDown = useRef(false);
@@ -50,118 +67,86 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
   const initialPinchDist = useRef<number | null>(null);
   const initialPinchScale = useRef<number | null>(null);
   const lastPointerPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const [isPanning, setIsPanning] = useState(false);
+  const isPanning = useRef(false);
 
-  const initializeBoard = (img: HTMLImageElement) => {
-    const aspectRatio = img.width / img.height;
-
-    const cols = Math.max(2, Math.round(Math.sqrt(targetPieces * aspectRatio)));
-    const rows = Math.max(2, Math.round(targetPieces / cols));
-
-    const pWidth = Math.floor(img.width / cols);
-    const pHeight = Math.floor(img.height / rows);
-    pieceDimensions.current = { width: pWidth, height: pHeight };
-    gridDimensions.current = { rows, cols };
-
-    const random = mulberry32(42);
-
-    const hTabs: number[][] = [];
-    for (let r = 0; r < rows; r++) {
-      const rowTabs = [];
-      for (let c = 0; c < cols - 1; c++) {
-        rowTabs.push(random() > 0.5 ? 1 : -1);
-      }
-      hTabs.push(rowTabs);
-    }
-
-    const vTabs: number[][] = [];
-    for (let r = 0; r < rows - 1; r++) {
-      const colTabs = [];
-      for (let c = 0; c < cols; c++) {
-        colTabs.push(random() > 0.5 ? 1 : -1);
-      }
-      vTabs.push(colTabs);
-    }
-
-    const scatterPieces = (piecesObj: Record<string, PieceRuntimeState>) => {
-      const boardWidth = cols * pWidth;
-      const boardHeight = rows * pHeight;
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      
-      Object.values(piecesObj).forEach(p => {
-        // Scatter around the perimeter of the board
-        const angle = random() * Math.PI * 2;
-        const dist = Math.max(boardWidth, boardHeight) / 2 + 100 + random() * (Math.max(w, h) / 2);
-        
-        p.x = boardWidth / 2 + Math.cos(angle) * dist - pWidth / 2;
-        p.y = boardHeight / 2 + Math.sin(angle) * dist - pHeight / 2;
-      });
-    };
-
-    const newPieces: Record<string, PieceRuntimeState> = {};
-    const newRenderOrder: string[] = [];
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < cols; c++) {
-        const id = `${r}-${c}`;
-
-        const top = r === 0 ? 0 : -vTabs[r - 1][c];
-        const bottom = r === rows - 1 ? 0 : vTabs[r][c];
-        const left = c === 0 ? 0 : -hTabs[r][c - 1];
-        const right = c === cols - 1 ? 0 : hTabs[r][c];
-
-        const path = createPiecePath(pWidth, pHeight, { top, right, bottom, left });
-        piecePathsRef.current[id] = path;
-
-        newPieces[id] = {
-          id,
-          row: r,
-          col: c,
-          x: 0,
-          y: 0,
-          groupId: id,
-        };
-        newRenderOrder.push(id);
-      }
-    }
-
-    scatterPieces(newPieces);
-
-    const startX = window.innerWidth / 2 - (cols * pWidth) / 2;
-    const startY = window.innerHeight / 2 - (rows * pHeight) / 2;
-    
-    // Zoom out a bit to see the scattered pieces
-    usePuzzleStore.setState({ 
-      camera: { x: startX, y: startY, scale: 0.6 } 
-    });
-
-    setPieces(newPieces, newRenderOrder);
-    setInitialized(true);
-  };
-
+  // ── Board setup ────────────────────────────────────────────────
   useEffect(() => {
+    let cancelled = false;
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.src = imageUrl;
     img.onload = () => {
-      setImage(img);
-      initializeBoard(img);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [imageUrl]);
+      if (cancelled) return;
 
+      const config: BoardConfig = {
+        seed,
+        rows,
+        cols,
+        pieceWidth: Math.floor(img.width / cols),
+        pieceHeight: Math.floor(img.height / rows),
+      };
+      configRef.current = config;
+
+      const tabs = generateTabs(config);
+      const paths: Record<string, Path2D> = {};
+      for (const [id, tab] of Object.entries(tabs)) {
+        paths[id] = createPiecePath(config.pieceWidth, config.pieceHeight, tab);
+      }
+      piecePathsRef.current = paths;
+
+      const store = usePuzzleStore.getState();
+      store.setImage(img);
+      store.setBoardConfig(config);
+      // Only scatter if nothing restored a board first (local save or peer snapshot).
+      if (Object.keys(store.pieces).length === 0) {
+        const { pieces, renderOrder } = generatePieces(config);
+        store.setPieces(pieces, renderOrder);
+      }
+
+      // Fit every piece (scattered ring or restored layout) into the viewport.
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of Object.values(usePuzzleStore.getState().pieces)) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + config.pieceWidth);
+        maxY = Math.max(maxY, p.y + config.pieceHeight);
+      }
+      const pad = config.pieceWidth;
+      const extentW = maxX - minX + pad * 2;
+      const extentH = maxY - minY + pad * 2;
+      const scale = Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, Math.min(window.innerWidth / extentW, window.innerHeight / extentH))
+      );
+      store.setCamera({
+        x: window.innerWidth / 2 - ((minX + maxX) / 2) * scale,
+        y: window.innerHeight / 2 - ((minY + maxY) / 2) * scale,
+        scale,
+      });
+
+      setInitialized(true);
+    };
+    return () => {
+      cancelled = true;
+    };
+  }, [imageUrl, seed, rows, cols]);
+
+  // ── Render loop ────────────────────────────────────────────────
   useEffect(() => {
-    if (!initialized || !image || !canvasRef.current) return;
+    if (!initialized || !canvasRef.current) return;
 
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    let animationFrameId: number;
+    let dirty = true;
+    let animationFrameId = 0;
 
-    const render = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const draw = () => {
+      const { image, pieces, renderOrder, camera, activeDragGroupId, ghostImageVisible, showEdgesOnly } =
+        usePuzzleStore.getState();
+      const config = configRef.current;
+      if (!image || !config) return;
 
       ctx.fillStyle = "#1e1e1e";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -170,23 +155,43 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
       ctx.translate(camera.x, camera.y);
       ctx.scale(camera.scale, camera.scale);
 
-      if (ghostImageVisible && image) {
+      if (ghostImageVisible) {
         ctx.save();
         ctx.globalAlpha = 0.15;
         ctx.drawImage(image, 0, 0);
         ctx.restore();
       }
 
+      // Frustum cull: skip pieces entirely outside the viewport (in world space).
+      const viewL = -camera.x / camera.scale;
+      const viewT = -camera.y / camera.scale;
+      const viewR = viewL + canvas.width / camera.scale;
+      const viewB = viewT + canvas.height / camera.scale;
+      // Tabs extend beyond the piece box by up to ~44% of an edge.
+      const padX = config.pieceWidth * 0.5;
+      const padY = config.pieceHeight * 0.5;
+
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.lineWidth = 1;
+
       for (const id of renderOrder) {
         const p = pieces[id];
-        if (!p) continue;
+        const path = piecePathsRef.current[id];
+        if (!p || !path) continue;
 
         if (showEdgesOnly) {
-          const isEdge = p.row === 0 || p.row === gridDimensions.current.rows - 1 || p.col === 0 || p.col === gridDimensions.current.cols - 1;
+          const isEdge = p.row === 0 || p.row === rows - 1 || p.col === 0 || p.col === cols - 1;
           if (!isEdge) continue;
         }
 
-        const path = piecePathsRef.current[id];
+        if (
+          p.x + config.pieceWidth + padX < viewL ||
+          p.x - padX > viewR ||
+          p.y + config.pieceHeight + padY < viewT ||
+          p.y - padY > viewB
+        ) {
+          continue;
+        }
 
         ctx.save();
         ctx.translate(p.x, p.y);
@@ -198,36 +203,55 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
           ctx.shadowOffsetY = 5;
         }
 
-        ctx.strokeStyle = "rgba(255,255,255,0.4)";
-        ctx.lineWidth = 1;
-
         ctx.clip(path);
-
-        const pWidth = pieceDimensions.current.width;
-        const pHeight = pieceDimensions.current.height;
-        const srcX = p.col * pWidth;
-        const srcY = p.row * pHeight;
-
-        ctx.drawImage(image, -srcX, -srcY);
+        ctx.drawImage(image, -p.col * config.pieceWidth, -p.row * config.pieceHeight);
         ctx.stroke(path);
 
         ctx.restore();
       }
 
       ctx.restore();
-      animationFrameId = requestAnimationFrame(render);
     };
 
-    render();
+    const loop = () => {
+      if (dirty) {
+        dirty = false;
+        draw();
+      }
+      animationFrameId = requestAnimationFrame(loop);
+    };
 
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [initialized, image, camera, pieces, renderOrder, activeDragGroupId, ghostImageVisible, showEdgesOnly]);
+    const handleResize = () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      dirty = true;
+    };
 
-  const getPointerPos = (e: React.PointerEvent) => {
+    const unsubscribe = usePuzzleStore.subscribe(() => {
+      dirty = true;
+    });
+    window.addEventListener("resize", handleResize);
+    handleResize();
+    loop();
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+      unsubscribe();
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [initialized, rows, cols]);
+
+  // ── Input ──────────────────────────────────────────────────────
+  const getCanvasPos = (e: React.PointerEvent | React.WheelEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
+  const toWorld = (canvasPos: { x: number; y: number }) => {
+    const { camera } = usePuzzleStore.getState();
     return {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
+      x: (canvasPos.x - camera.x) / camera.scale,
+      y: (canvasPos.y - camera.y) / camera.scale,
     };
   };
 
@@ -238,14 +262,16 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
     lastPointerPos.current = pos;
     activePointers.current.set(e.pointerId, pos);
 
+    const store = usePuzzleStore.getState();
+
     if (activePointers.current.size === 2) {
       // Start pinch-to-zoom
       const pts = Array.from(activePointers.current.values());
       initialPinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      initialPinchScale.current = camera.scale;
-      setIsPanning(false);
-      if (activeDragGroupId) {
-        endGroupDrag();
+      initialPinchScale.current = store.camera.scale;
+      isPanning.current = false;
+      if (store.activeDragGroupId) {
+        store.endGroupDrag();
       }
       return;
     }
@@ -253,95 +279,84 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
     if (activePointers.current.size > 2) return;
 
     if (e.button === 1 || e.button === 2) {
-      setIsPanning(true);
+      isPanning.current = true;
       return;
     }
 
     const ctx = canvasRef.current!.getContext("2d");
     if (!ctx) return;
 
-    const canvasPos = getPointerPos(e);
+    const canvasPos = getCanvasPos(e);
+    const world = toWorld(canvasPos);
+    const { pieces, renderOrder } = store;
 
+    ctx.save();
+    ctx.resetTransform();
     for (let i = renderOrder.length - 1; i >= 0; i--) {
       const id = renderOrder[i];
       const p = pieces[id];
       const path = piecePathsRef.current[id];
+      if (!p || !path) continue;
 
-      const worldX = (canvasPos.x - camera.x) / camera.scale;
-      const worldY = (canvasPos.y - camera.y) / camera.scale;
-
-      const localX = worldX - p.x;
-      const localY = worldY - p.y;
-
-      ctx.save();
-      ctx.resetTransform();
-      if (ctx.isPointInPath(path, localX, localY)) {
+      if (ctx.isPointInPath(path, world.x - p.x, world.y - p.y)) {
         ctx.restore();
-        startGroupDrag(p.groupId, canvasPos);
+        store.startGroupDrag(p.groupId, canvasPos);
         return;
       }
-      ctx.restore();
     }
+    ctx.restore();
 
-    setIsPanning(true);
+    isPanning.current = true;
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
     const pos = { x: e.clientX, y: e.clientY };
-    
+    const store = usePuzzleStore.getState();
+
     if (activePointers.current.has(e.pointerId)) {
       activePointers.current.set(e.pointerId, pos);
     }
 
-    if (activePointers.current.size === 2 && initialPinchDist.current !== null && initialPinchScale.current !== null) {
+    if (
+      activePointers.current.size === 2 &&
+      initialPinchDist.current !== null &&
+      initialPinchScale.current !== null
+    ) {
       // Handle pinch-to-zoom
       const pts = Array.from(activePointers.current.values());
       const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
       const scaleFactor = currentDist / initialPinchDist.current;
-      const newScale = Math.min(Math.max(0.1, initialPinchScale.current * scaleFactor), 5);
-      
+      const newScale = Math.min(Math.max(MIN_SCALE, initialPinchScale.current * scaleFactor), MAX_SCALE);
+
       const focalX = (pts[0].x + pts[1].x) / 2;
       const focalY = (pts[0].y + pts[1].y) / 2;
+      const { camera } = store;
 
       const ds = newScale - camera.scale;
       const dx = -(focalX - camera.x) * (ds / camera.scale);
       const dy = -(focalY - camera.y) * (ds / camera.scale);
 
-      setCamera({
-        x: camera.x + dx,
-        y: camera.y + dy,
-        scale: newScale
-      });
+      store.setCamera({ x: camera.x + dx, y: camera.y + dy, scale: newScale });
       return;
     }
 
-    if (!isPointerDown.current || activePointers.current.size !== 1) {
-      // Just hovering
-      const canvasPos = getPointerPos(e);
-      const worldX = (canvasPos.x - camera.x) / camera.scale;
-      const worldY = (canvasPos.y - camera.y) / camera.scale;
-      sendPointerMove(worldX, worldY, myColor, username);
-      return;
+    const canvasPos = getCanvasPos(e);
+
+    if (isPointerDown.current && activePointers.current.size === 1) {
+      if (isPanning.current) {
+        store.panCamera(pos.x - lastPointerPos.current.x, pos.y - lastPointerPos.current.y);
+        lastPointerPos.current = pos;
+      } else if (store.activeDragGroupId) {
+        store.updateGroupDrag(canvasPos);
+        lastPointerPos.current = pos;
+        const after = usePuzzleStore.getState();
+        const anchor = Object.values(after.pieces).find((p) => p.groupId === after.activeDragGroupId);
+        if (anchor) sendGroupMove(anchor.id, anchor.x, anchor.y);
+      }
     }
 
-    if (isPanning) {
-      const dx = pos.x - lastPointerPos.current.x;
-      const dy = pos.y - lastPointerPos.current.y;
-      panCamera(dx, dy);
-      lastPointerPos.current = pos;
-    } else if (activeDragGroupId) {
-      const canvasPos = getPointerPos(e);
-      const dx = (pos.x - lastPointerPos.current.x) / camera.scale;
-      const dy = (pos.y - lastPointerPos.current.y) / camera.scale;
-      updateGroupDrag(canvasPos);
-      sendDragStream(activeDragGroupId, dx, dy);
-      lastPointerPos.current = pos;
-    }
-
-    const canvasPos = getPointerPos(e);
-    const worldX = (canvasPos.x - camera.x) / camera.scale;
-    const worldY = (canvasPos.y - camera.y) / camera.scale;
-    sendPointerMove(worldX, worldY, myColor, username);
+    const world = toWorld(canvasPos);
+    sendPointerMove(world.x, world.y);
   };
 
   const handlePointerUp = (e: React.PointerEvent) => {
@@ -357,102 +372,51 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
       isPointerDown.current = false;
     }
 
-    if (isPanning) {
-      setIsPanning(false);
-    }
-
-    const playSnapSound = () => {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-        if (!AudioContext) return;
-        const audioCtx = new AudioContext();
-        const osc = audioCtx.createOscillator();
-        const gainNode = audioCtx.createGain();
-        
-        osc.type = 'sine';
-        osc.frequency.setValueAtTime(800, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(300, audioCtx.currentTime + 0.1);
-        
-        gainNode.gain.setValueAtTime(0.3, audioCtx.currentTime);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
-        
-        osc.connect(gainNode);
-        gainNode.connect(audioCtx.destination);
-        
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.1);
-      } catch {
-        // Ignore audio errors
-      }
-    };
-
-    if (activeDragGroupId) {
-      endGroupDrag();
-
-      const activeGroupPieces = Object.values(pieces).filter(
-        (p) => p.groupId === activeDragGroupId
-      );
-      const otherPieces = Object.values(pieces).filter(
-        (p) => p.groupId !== activeDragGroupId
-      );
-
-      let snapped = false;
-      for (const ap of activeGroupPieces) {
-        for (const op of otherPieces) {
-          if (
-            checkSnap(
-              ap,
-              op,
-              pieceDimensions.current.width,
-              pieceDimensions.current.height
-            )
-          ) {
-            const expectedDx = (ap.col - op.col) * pieceDimensions.current.width;
-            const expectedDy = (ap.row - op.row) * pieceDimensions.current.height;
-
-            const targetX = op.x + expectedDx;
-            const targetY = op.y + expectedDy;
-
-            const snapDx = targetX - ap.x;
-            const snapDy = targetY - ap.y;
-
-            mergeGroups(op.groupId, activeDragGroupId, snapDx, snapDy);
-            snapped = true;
-            playSnapSound();
-            sendMergeNotify(op.groupId, activeDragGroupId, snapDx, snapDy);
-            break;
-          }
-        }
-        if (snapped) break;
-      }
-    }
-
+    isPanning.current = false;
     lastPointerPos.current = { x: 0, y: 0 };
-    canvasRef.current?.releasePointerCapture(e.pointerId);
+
+    const store = usePuzzleStore.getState();
+    const draggedGroupId = store.activeDragGroupId;
+    const config = configRef.current;
+    if (!draggedGroupId || !config) return;
+
+    store.endGroupDrag();
+
+    const { pieces } = store;
+    const activeGroupPieces = Object.values(pieces).filter((p) => p.groupId === draggedGroupId);
+    const otherPieces = Object.values(pieces).filter((p) => p.groupId !== draggedGroupId);
+
+    // Final resting position, sent unthrottled so peers land exactly where we did.
+    if (activeGroupPieces[0]) {
+      sendGroupMove(activeGroupPieces[0].id, activeGroupPieces[0].x, activeGroupPieces[0].y, true);
+    }
+
+    for (const ap of activeGroupPieces) {
+      for (const op of otherPieces) {
+        if (!checkSnap(ap, op, config.pieceWidth, config.pieceHeight)) continue;
+
+        const targetX = op.x + (ap.col - op.col) * config.pieceWidth;
+        const targetY = op.y + (ap.row - op.row) * config.pieceHeight;
+
+        store.mergeGroups(op.groupId, draggedGroupId, targetX - ap.x, targetY - ap.y);
+        playSnapSound();
+
+        // Publish the exact layout of the merged group so peers converge regardless of drift.
+        const merged = usePuzzleStore.getState().pieces;
+        const positions: PiecePositions = {};
+        for (const p of Object.values(merged)) {
+          if (p.groupId === op.groupId) positions[p.id] = { x: p.x, y: p.y };
+        }
+        sendGroupMerge(op.groupId, positions);
+        return;
+      }
+    }
   };
 
   const handleWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const pos = {
-      x: e.clientX - canvasRef.current!.getBoundingClientRect().left,
-      y: e.clientY - canvasRef.current!.getBoundingClientRect().top,
-    };
     const scaleDelta = e.deltaY < 0 ? 0.1 : -0.1;
-    zoomCamera(scaleDelta, pos);
+    usePuzzleStore.getState().zoomCamera(scaleDelta, getCanvasPos(e));
   };
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (canvasRef.current) {
-        canvasRef.current.width = window.innerWidth;
-        canvasRef.current.height = window.innerHeight;
-      }
-    };
-    window.addEventListener("resize", handleResize);
-    handleResize();
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   return (
     <canvas
@@ -460,9 +424,10 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
       onWheel={handleWheel}
       onContextMenu={(e) => e.preventDefault()}
-      className="w-full h-full touch-none block"
+      className="w-full h-full touch-none block overscroll-none"
     />
   );
 }

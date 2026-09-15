@@ -5,7 +5,7 @@ import { usePuzzleStore } from "@/stores/usePuzzleStore";
 import { Clock, CheckCircle2, Share2, Check } from "lucide-react";
 
 export default function TopNav() {
-  const { pieces } = usePuzzleStore();
+  const pieces = usePuzzleStore((s) => s.pieces);
   const [elapsed, setElapsed] = useState(0);
   const [copied, setCopied] = useState(false);
 

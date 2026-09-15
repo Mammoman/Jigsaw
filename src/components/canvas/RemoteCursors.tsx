@@ -4,7 +4,8 @@ import React from "react";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 
 export default function RemoteCursors() {
-  const { remoteCursors, camera } = usePuzzleStore();
+  const remoteCursors = usePuzzleStore((s) => s.remoteCursors);
+  const camera = usePuzzleStore((s) => s.camera);
 
   return (
     <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">

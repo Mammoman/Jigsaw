@@ -1,5 +1,12 @@
 # Technical Design & Implementation Document: Modern Jigsaw Web
 
+> **Status (Sept 2026):** this document is the original design spec. The shipped
+> implementation differs in two places: the networking layer is **Supabase Realtime**
+> (broadcast + presence, no server-side mutex) rather than PartyKit, and image uploads
+> go to **Supabase Storage** rather than Uploadthing. Position messages are absolute
+> (`GROUP_MOVE` / `GROUP_MERGE`) and late joiners receive a full board via
+> `SYNC_REQ` / `SYNC_STATE`; see `src/hooks/usePuzzleMultiplayer.ts`.
+
 ## 1. Executive Summary
 
 This document specifies the architecture, mathematical models, state topologies, and deployment strategies for **Modern Jigsaw**, a collaborative, high-performance web puzzle game inspired by Jigsaw Explorer.

@@ -1,14 +1,19 @@
 import { create } from "zustand";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { PieceRuntimeState } from "../types/puzzle";
+import { BoardConfig, generatePieces } from "../utils/boardGenerator";
+
+export type PiecePositions = Record<string, { x: number; y: number }>;
 
 interface PuzzleState {
   puzzleId: string | null;
   username: string | null;
-  seed: number;
+  boardConfig: BoardConfig | null;
   image: HTMLImageElement | null;
   pieces: Record<string, PieceRuntimeState>;
   renderOrder: string[];
+  /** True once a peer's board snapshot has been applied; local saves must not override it. */
+  remoteSynced: boolean;
 
   // Settings
   ghostImageVisible: boolean;
@@ -32,17 +37,25 @@ interface PuzzleState {
   startGroupDrag: (groupId: string, clientPos: { x: number; y: number }) => void;
   updateGroupDrag: (clientPos: { x: number; y: number }) => void;
   endGroupDrag: () => void;
-  applyRemoteDrag: (groupId: string, dx: number, dy: number) => void;
+
+  /** Move a whole group so that `anchorId` lands at (x, y). Absolute, so lost messages self-heal. */
+  applyRemoteGroupPosition: (anchorId: string, x: number, y: number) => void;
+  /** Assign the given pieces to `groupId` at exact positions (used after a peer snaps). */
+  applyGroupSnapshot: (groupId: string, positions: PiecePositions) => void;
+  /** Replace the whole board with a peer's copy. */
+  applyBoardSnapshot: (pieces: Record<string, PieceRuntimeState>, renderOrder: string[]) => void;
 
   mergeGroups: (groupIdToKeep: string, groupIdToMerge: string, snapDx: number, snapDy: number) => void;
   setPieces: (pieces: Record<string, PieceRuntimeState>, renderOrder: string[]) => void;
+  setBoardConfig: (config: BoardConfig) => void;
+  resetBoard: () => void;
   setImage: (image: HTMLImageElement) => void;
   setPuzzleId: (id: string) => void;
   setUsername: (username: string | null) => void;
   setPlayerCount: (count: number) => void;
   loadSavedGame: (puzzleId: string) => Promise<boolean>;
   clearSavedGame: (puzzleId: string) => Promise<void>;
-  
+
   toggleGhostImage: () => void;
   toggleShowEdgesOnly: () => void;
 
@@ -50,13 +63,36 @@ interface PuzzleState {
   removeRemoteCursor: (id: string) => void;
 }
 
-export const usePuzzleStore = create<PuzzleState>((set) => ({
+function bumpToTop(renderOrder: string[], ids: string[]) {
+  const set = new Set(ids);
+  return renderOrder.filter((id) => !set.has(id)).concat(ids);
+}
+
+function moveGroup(
+  pieces: Record<string, PieceRuntimeState>,
+  groupId: string,
+  dx: number,
+  dy: number
+) {
+  const next = { ...pieces };
+  const moved: string[] = [];
+  for (const p of Object.values(pieces)) {
+    if (p.groupId === groupId) {
+      next[p.id] = { ...p, x: p.x + dx, y: p.y + dy };
+      moved.push(p.id);
+    }
+  }
+  return { next, moved };
+}
+
+export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   puzzleId: null,
   username: null,
-  seed: 42,
+  boardConfig: null,
   image: null,
   pieces: {},
   renderOrder: [],
+  remoteSynced: false,
   ghostImageVisible: false,
   showEdgesOnly: false,
   camera: { x: 0, y: 0, scale: 1 },
@@ -93,12 +129,10 @@ export const usePuzzleStore = create<PuzzleState>((set) => ({
       .filter((p) => p.groupId === groupId)
       .map((p) => p.id);
 
-    const newRenderOrder = state.renderOrder.filter(id => !groupPieceIds.includes(id)).concat(groupPieceIds);
-
     return {
       activeDragGroupId: groupId,
       lastDragPos: { ...clientPos },
-      renderOrder: newRenderOrder
+      renderOrder: bumpToTop(state.renderOrder, groupPieceIds)
     };
   }),
 
@@ -107,46 +141,43 @@ export const usePuzzleStore = create<PuzzleState>((set) => ({
 
     const dx = (clientPos.x - state.lastDragPos.x) / state.camera.scale;
     const dy = (clientPos.y - state.lastDragPos.y) / state.camera.scale;
+    const { next } = moveGroup(state.pieces, state.activeDragGroupId, dx, dy);
 
-    const newPieces = { ...state.pieces };
-    Object.values(newPieces).forEach((p) => {
-      if (p.groupId === state.activeDragGroupId) {
-        newPieces[p.id] = { ...p, x: p.x + dx, y: p.y + dy };
-      }
-    });
-
-    return {
-      pieces: newPieces,
-      lastDragPos: { ...clientPos }
-    };
+    return { pieces: next, lastDragPos: { ...clientPos } };
   }),
 
-  endGroupDrag: () => set(() => {
-    return {
-      activeDragGroupId: null,
-      lastDragPos: null
-    };
+  endGroupDrag: () => set({ activeDragGroupId: null, lastDragPos: null }),
+
+  applyRemoteGroupPosition: (anchorId, x, y) => set((state) => {
+    const anchor = state.pieces[anchorId];
+    if (!anchor) return state;
+    // Don't let a peer's stream fight the group we're holding.
+    if (anchor.groupId === state.activeDragGroupId) return state;
+
+    const { next, moved } = moveGroup(state.pieces, anchor.groupId, x - anchor.x, y - anchor.y);
+    return { pieces: next, renderOrder: bumpToTop(state.renderOrder, moved) };
   }),
 
-  applyRemoteDrag: (groupId, dx, dy) => set((state) => {
-    const newPieces = { ...state.pieces };
-    let moved = false;
-    Object.values(newPieces).forEach((p) => {
-      if (p.groupId === groupId) {
-        newPieces[p.id] = { ...p, x: p.x + dx, y: p.y + dy };
-        moved = true;
-      }
-    });
-    
-    if (!moved) return state;
-    
-    // Also bump to top of render order
-    const groupPieceIds = Object.values(state.pieces)
-      .filter((p) => p.groupId === groupId)
-      .map((p) => p.id);
-    const newRenderOrder = state.renderOrder.filter(id => !groupPieceIds.includes(id)).concat(groupPieceIds);
-    
-    return { pieces: newPieces, renderOrder: newRenderOrder };
+  applyGroupSnapshot: (groupId, positions) => set((state) => {
+    const next = { ...state.pieces };
+    for (const [id, pos] of Object.entries(positions)) {
+      const p = next[id];
+      if (p) next[id] = { ...p, groupId, x: pos.x, y: pos.y };
+    }
+    // If a peer's snap absorbed the group we're holding, drop our drag.
+    const dragAbsorbed =
+      state.activeDragGroupId !== null &&
+      Object.values(state.pieces).some(
+        (p) => p.groupId === state.activeDragGroupId && p.id in positions
+      );
+    return dragAbsorbed
+      ? { pieces: next, activeDragGroupId: null, lastDragPos: null }
+      : { pieces: next };
+  }),
+
+  applyBoardSnapshot: (pieces, renderOrder) => set((state) => {
+    if (state.activeDragGroupId) return state;
+    return { pieces, renderOrder, remoteSynced: true };
   }),
 
   mergeGroups: (groupIdToKeep, groupIdToMerge, snapDx, snapDy) => set((state) => {
@@ -164,16 +195,42 @@ export const usePuzzleStore = create<PuzzleState>((set) => ({
     return { pieces: newPieces };
   }),
 
-  setPieces: (pieces, renderOrder) => set(() => ({ pieces, renderOrder })),
-  setImage: (image) => set(() => ({ image })),
-  setPuzzleId: (id) => set(() => ({ puzzleId: id })),
-  setUsername: (username) => set(() => ({ username })),
-  setPlayerCount: (count) => set(() => ({ playerCount: count })),
+  setPieces: (pieces, renderOrder) => set({ pieces, renderOrder }),
+  setBoardConfig: (boardConfig) => set({ boardConfig }),
+
+  resetBoard: () => {
+    const { boardConfig } = get();
+    if (!boardConfig) return;
+    const { pieces, renderOrder } = generatePieces(boardConfig);
+    set({ pieces, renderOrder, activeDragGroupId: null, lastDragPos: null });
+  },
+
+  setImage: (image) => set({ image }),
+
+  setPuzzleId: (id) => set((state) => {
+    if (state.puzzleId === id) return state;
+    // The store outlives page navigation; don't carry one puzzle's board into another.
+    return {
+      puzzleId: id,
+      pieces: {},
+      renderOrder: [],
+      boardConfig: null,
+      image: null,
+      remoteSynced: false,
+      remoteCursors: {},
+      activeDragGroupId: null,
+      lastDragPos: null,
+    };
+  }),
+
+  setUsername: (username) => set({ username }),
+  setPlayerCount: (count) => set({ playerCount: count }),
 
   loadSavedGame: async (puzzleId) => {
     try {
       const saved = await idbGet(`puzzle-${puzzleId}`);
-      if (saved) {
+      // A peer's live board beats a stale local save.
+      if (saved && !get().remoteSynced) {
         set({ pieces: saved.pieces, renderOrder: saved.renderOrder, puzzleId });
         return true;
       }
@@ -223,3 +280,4 @@ usePuzzleStore.subscribe((state, prevState) => {
     }).catch(e => console.error("Auto-save failed", e));
   }
 });
+

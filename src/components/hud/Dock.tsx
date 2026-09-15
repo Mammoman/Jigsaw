@@ -4,8 +4,15 @@ import React from "react";
 import { ZoomIn, ZoomOut, RotateCcw, Image as ImageIcon, Frame } from "lucide-react";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 
-export default function Dock() {
-  const { zoomCamera, camera, ghostImageVisible, showEdgesOnly, toggleGhostImage, toggleShowEdgesOnly } = usePuzzleStore();
+interface DockProps {
+  onReset: () => void;
+}
+
+export default function Dock({ onReset }: DockProps) {
+  const scale = usePuzzleStore((s) => s.camera.scale);
+  const ghostImageVisible = usePuzzleStore((s) => s.ghostImageVisible);
+  const showEdgesOnly = usePuzzleStore((s) => s.showEdgesOnly);
+  const { zoomCamera, toggleGhostImage, toggleShowEdgesOnly } = usePuzzleStore.getState();
 
   const handleZoomIn = () => {
     zoomCamera(0.2, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
@@ -13,10 +20,6 @@ export default function Dock() {
 
   const handleZoomOut = () => {
     zoomCamera(-0.2, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  };
-
-  const handleReset = () => {
-    window.location.reload();
   };
 
   return (
@@ -54,11 +57,11 @@ export default function Dock() {
         </button>
         <div className="w-px h-6 bg-white/20 mx-1" />
         <div className="px-3 text-white/50 text-sm font-mono">
-          {Math.round(camera.scale * 100)}%
+          {Math.round(scale * 100)}%
         </div>
         <div className="w-px h-6 bg-white/20 mx-1" />
         <button
-          onClick={handleReset}
+          onClick={onReset}
           className="p-3 hover:bg-red-500/20 hover:text-red-400 rounded-xl text-white transition-colors"
           title="Reset Puzzle"
         >
