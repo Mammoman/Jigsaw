@@ -37,8 +37,9 @@ export default function HomePage() {
     setIsCreating(true);
     setError(null);
     try {
-      const fileExt = imageFile.name.split(".").pop();
-      const fileName = `${Date.now()}.${fileExt}`;
+      const extFromName = imageFile.name.includes(".") ? imageFile.name.split(".").pop() : "";
+      const fileExt = extFromName || imageFile.type.split("/")[1] || "jpeg";
+      const fileName = `${Date.now()}.${fileExt.replace(/[^a-zA-Z0-9]/g, '')}`;
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("puzzle-images")
         .upload(fileName, imageFile, { upsert: false });
