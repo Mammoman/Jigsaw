@@ -4,6 +4,8 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { computeGrid } from "@/utils/boardGenerator";
+import { MAX_UPLOAD_BYTES, processImage } from "@/utils/imageProcessor";
 
 const PIECE_OPTIONS = [24, 30, 45, 55, 67, 80, 96, 107, 118, 125, 145, 154, 170, 180, 200, 225, 250, 300, 330, 370, 420, 450, 500];
 
@@ -21,9 +23,16 @@ export default function HomePage() {
       setError("Please select an image file.");
       return;
     }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setError(`That image is too large (max ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB).`);
+      return;
+    }
     setError(null);
     setImageFile(file);
-    setImagePreview(URL.createObjectURL(file));
+    setImagePreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
   }, []);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -38,28 +47,22 @@ export default function HomePage() {
     setIsCreating(true);
     setError(null);
     try {
-      // Ensure the filename is completely safe and free of any unexpected characters from the original mobile file.
-      // We rely on the contentType to tell the browser how to render it, rather than the file extension.
+      const processed = await processImage(imageFile);
+
+      // Random name: the original filename can contain anything (mobile browsers especially).
       const safeId = Math.random().toString(36).substring(2, 10);
-      const fileName = `${Date.now()}-${safeId}`;
-      
+      const fileName = `${Date.now()}-${safeId}.${processed.extension}`;
+
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("puzzle-images")
-        .upload(fileName, imageFile, { 
-          upsert: false,
-          contentType: imageFile.type || "image/jpeg"
-        });
+        .upload(fileName, processed.blob, { upsert: false, contentType: processed.contentType });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from("puzzle-images").getPublicUrl(uploadData.path);
       const publicUrl = urlData.publicUrl;
 
-      const img = new Image();
-      img.src = imagePreview!;
-      await new Promise(r => { img.onload = r; });
-      const aspectRatio = img.width / img.height;
-      const cols = Math.max(2, Math.round(Math.sqrt(targetPieces * aspectRatio)));
-      const rows = Math.max(2, Math.round(targetPieces / cols));
+      const aspectRatio = processed.width / processed.height;
+      const { rows, cols } = computeGrid(targetPieces, aspectRatio);
 
       const { data: puzzle, error: dbError } = await supabase.from("puzzles").insert({
         image_url: publicUrl,
@@ -67,15 +70,15 @@ export default function HomePage() {
         target_pieces: targetPieces,
         actual_rows: rows,
         actual_cols: cols,
-        seed: Math.floor(Math.random() * 999999),
+        seed: Math.floor(Math.random() * 2_000_000_000),
         aspect_ratio: aspectRatio,
         is_public: true,
-      }).select().single();
+      }).select("id").single();
       if (dbError) throw dbError;
 
       router.push(`/play/${puzzle.id}`);
-    } catch (err: any) {
-      setError(err.message || "Something went wrong.");
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Something went wrong.");
       setIsCreating(false);
     }
   };
@@ -167,7 +170,7 @@ export default function HomePage() {
               {isCreating ? "Creating..." : "Create puzzle →"}
             </button>
             <p className="text-xs text-white/20 text-center leading-relaxed">
-              You'll get a shareable link. Anyone with the link can join and solve it with you.
+              You&apos;ll get a shareable link. Anyone with the link can join and solve it with you.
             </p>
           </div>
         </div>
