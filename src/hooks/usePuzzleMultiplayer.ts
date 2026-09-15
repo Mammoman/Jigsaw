@@ -11,9 +11,11 @@ export function usePuzzleMultiplayer(roomId: string) {
     mergeGroups,
     applyRemoteDrag,
     username,
+    setPlayerCount,
   } = usePuzzleStore();
 
   const myId = useRef<string>(`user-${Math.random().toString(36).slice(2, 8)}`).current;
+  const myColor = useRef(`hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`).current;
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
@@ -33,18 +35,39 @@ export function usePuzzleMultiplayer(roomId: string) {
       .on("broadcast", { event: "MERGE_NOTIFY" }, ({ payload }) => {
         mergeGroups(payload.groupIdToKeep, payload.groupIdToMerge, payload.snapDx, payload.snapDy);
       })
+      // Presence: keep player count up to date
+      .on("presence", { event: "sync" }, () => {
+        const state = channel.presenceState();
+        setPlayerCount(Object.keys(state).length);
+      })
       .on("presence", { event: "leave" }, ({ leftPresences }) => {
         leftPresences.forEach((p: any) => removeRemoteCursor(p.userId));
       })
-      .subscribe();
+      .subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await channel.track({
+            userId: myId,
+            username: username || "Player",
+            color: myColor,
+          });
+        }
+      });
 
     channelRef.current = channel;
 
     return () => {
       supabase.removeChannel(channel);
       channelRef.current = null;
+      setPlayerCount(0);
     };
   }, [roomId]);
+
+  // Re-track when the user sets their display name
+  useEffect(() => {
+    if (channelRef.current && username) {
+      channelRef.current.track({ userId: myId, username, color: myColor });
+    }
+  }, [username]);
 
   const sendPointerMove = (x: number, y: number, color: string, uname: string | null) => {
     channelRef.current?.send({
@@ -62,7 +85,12 @@ export function usePuzzleMultiplayer(roomId: string) {
     });
   };
 
-  const sendMergeNotify = (groupIdToKeep: string, groupIdToMerge: string, snapDx: number, snapDy: number) => {
+  const sendMergeNotify = (
+    groupIdToKeep: string,
+    groupIdToMerge: string,
+    snapDx: number,
+    snapDy: number
+  ) => {
     channelRef.current?.send({
       type: "broadcast",
       event: "MERGE_NOTIFY",
@@ -70,5 +98,5 @@ export function usePuzzleMultiplayer(roomId: string) {
     });
   };
 
-  return { sendPointerMove, sendDragStream, sendMergeNotify };
+  return { sendPointerMove, sendDragStream, sendMergeNotify, myColor };
 }

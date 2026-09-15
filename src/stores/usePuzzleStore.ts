@@ -19,6 +19,9 @@ interface PuzzleState {
   activeDragGroupId: string | null;
   lastDragPos: { x: number; y: number } | null;
 
+  // Multiplayer lobby state
+  playerCount: number;
+
   // Remote Multiplayer State
   remoteCursors: Record<string, { x: number; y: number; color: string; username?: string }>;
 
@@ -36,6 +39,7 @@ interface PuzzleState {
   setImage: (image: HTMLImageElement) => void;
   setPuzzleId: (id: string) => void;
   setUsername: (username: string | null) => void;
+  setPlayerCount: (count: number) => void;
   loadSavedGame: (puzzleId: string) => Promise<boolean>;
   clearSavedGame: (puzzleId: string) => Promise<void>;
   
@@ -58,6 +62,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   camera: { x: 0, y: 0, scale: 1 },
   activeDragGroupId: null,
   lastDragPos: null,
+  playerCount: 0,
   remoteCursors: {},
 
   panCamera: (dx, dy) => set((state) => ({
@@ -163,6 +168,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   setImage: (image) => set(() => ({ image })),
   setPuzzleId: (id) => set(() => ({ puzzleId: id })),
   setUsername: (username) => set(() => ({ username })),
+  setPlayerCount: (count) => set(() => ({ playerCount: count })),
 
   loadSavedGame: async (puzzleId) => {
     try {

@@ -6,14 +6,17 @@ import { PieceRuntimeState } from "@/types/puzzle";
 import { createPiecePath } from "@/utils/bezierGenerator";
 import { checkSnap } from "@/utils/snapEngine";
 import { mulberry32 } from "@/utils/random";
-import { usePuzzleMultiplayer } from "@/hooks/usePuzzleMultiplayer";
 
 interface StageProps {
   imageUrl: string;
   targetPieces?: number;
+  sendPointerMove: (x: number, y: number, color: string, uname: string | null) => void;
+  sendDragStream: (groupId: string, dx: number, dy: number) => void;
+  sendMergeNotify: (groupIdToKeep: string, groupIdToMerge: string, snapDx: number, snapDy: number) => void;
+  myColor: string;
 }
 
-export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
+export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, sendDragStream, sendMergeNotify, myColor }: StageProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   const {
@@ -34,16 +37,12 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     ghostImageVisible,
     showEdgesOnly,
     username,
-    puzzleId,
   } = usePuzzleStore();
 
   const [initialized, setInitialized] = useState(false);
   const piecePathsRef = useRef<Record<string, Path2D>>({});
   const pieceDimensions = useRef({ width: 0, height: 0 });
   const gridDimensions = useRef({ rows: 0, cols: 0 });
-
-  const { sendPointerMove, sendDragStream, sendMergeNotify } = usePuzzleMultiplayer(puzzleId || "default");
-  const myColor = useRef(`hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`).current;
 
   // Interaction state
   const isPointerDown = useRef(false);
@@ -221,7 +220,7 @@ export default function Stage({ imageUrl, targetPieces = 24 }: StageProps) {
     render();
 
     return () => cancelAnimationFrame(animationFrameId);
-  }, [initialized, image, camera, pieces, renderOrder, activeDragGroupId]);
+  }, [initialized, image, camera, pieces, renderOrder, activeDragGroupId, ghostImageVisible, showEdgesOnly]);
 
   const getPointerPos = (e: React.PointerEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect();

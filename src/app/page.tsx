@@ -74,7 +74,7 @@ export default function HomePage() {
   };
 
   return (
-    <main className="min-h-screen bg-[#111] text-white flex flex-col">
+    <main className="min-h-[100dvh] bg-[#111] text-white flex flex-col">
       {/* Nav */}
       <nav className="flex items-center justify-between px-6 py-4 border-b border-white/5">
         <span className="text-lg font-bold tracking-tight">🧩 Jigsaw</span>
