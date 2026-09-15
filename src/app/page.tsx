@@ -38,12 +38,17 @@ export default function HomePage() {
     setIsCreating(true);
     setError(null);
     try {
-      const extFromName = imageFile.name.includes(".") ? imageFile.name.split(".").pop() : "";
-      const fileExt = extFromName || imageFile.type.split("/")[1] || "jpeg";
-      const fileName = `${Date.now()}.${fileExt.replace(/[^a-zA-Z0-9]/g, '')}`;
+      // Ensure the filename is completely safe and free of any unexpected characters from the original mobile file.
+      // We rely on the contentType to tell the browser how to render it, rather than the file extension.
+      const safeId = Math.random().toString(36).substring(2, 10);
+      const fileName = `${Date.now()}-${safeId}`;
+      
       const { data: uploadData, error: uploadError } = await supabase.storage
         .from("puzzle-images")
-        .upload(fileName, imageFile, { upsert: false });
+        .upload(fileName, imageFile, { 
+          upsert: false,
+          contentType: imageFile.type || "image/jpeg"
+        });
       if (uploadError) throw uploadError;
 
       const { data: urlData } = supabase.storage.from("puzzle-images").getPublicUrl(uploadData.path);
