@@ -41,7 +41,8 @@ export function usePuzzleMultiplayer(roomId: string) {
         setPlayerCount(Object.keys(state).length);
       })
       .on("presence", { event: "leave" }, ({ leftPresences }) => {
-        leftPresences.forEach((p: { userId: string }) => removeRemoteCursor(p.userId));
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        leftPresences.forEach((p: any) => removeRemoteCursor(p.userId));
       })
       .subscribe(async (status) => {
         if (status === "SUBSCRIBED") {

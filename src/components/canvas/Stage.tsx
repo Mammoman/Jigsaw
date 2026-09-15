@@ -363,7 +363,8 @@ export default function Stage({ imageUrl, targetPieces = 24, sendPointerMove, se
 
     const playSnapSound = () => {
       try {
-        const AudioContext = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
         if (!AudioContext) return;
         const audioCtx = new AudioContext();
         const osc = audioCtx.createOscillator();
