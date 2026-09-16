@@ -10,6 +10,12 @@ const BG_COLORS = [
   { label: "Purple", value: "#c4b5fd" },
 ];
 
+function countGroups(pieces: Record<string, { groupId: string }>) {
+  const groups = new Set<string>();
+  for (const id in pieces) groups.add(pieces[id].groupId);
+  return groups.size;
+}
+
 interface TopNavProps {
   isIdle?: boolean;
   onReset?: () => void;
@@ -27,7 +33,9 @@ export default function TopNav({
   onJoinVoice,
   onToggleMute
 }: TopNavProps) {
-  const pieces = usePuzzleStore((s) => s.pieces);
+  // Derived selectors: re-render only when the numbers change, not on every drag frame.
+  const totalPieces = usePuzzleStore((s) => Object.keys(s.pieces).length);
+  const uniqueGroups = usePuzzleStore((s) => countGroups(s.pieces));
   const previewVisible = usePuzzleStore((s) => s.previewVisible);
   const showEdgesOnly = usePuzzleStore((s) => s.showEdgesOnly);
   const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
@@ -43,8 +51,6 @@ export default function TopNav({
     return () => clearInterval(timer);
   }, []);
 
-  const totalPieces = Object.keys(pieces).length;
-  const uniqueGroups = new Set(Object.values(pieces).map((p) => p.groupId)).size;
   const connected = totalPieces - uniqueGroups;
   const progress = totalPieces <= 1 ? 0 : Math.round((connected / (totalPieces - 1)) * 100);
 

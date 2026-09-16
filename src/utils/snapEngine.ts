@@ -6,7 +6,8 @@ export function checkSnap(
   pieceA: PieceRuntimeState,
   pieceB: PieceRuntimeState,
   pieceWidth: number,
-  pieceHeight: number
+  pieceHeight: number,
+  tolerance: number = SNAP_TOLERANCE
 ): boolean {
   // Manhattan distance must be 1
   const rowDiff = Math.abs(pieceA.row - pieceB.row);
@@ -29,5 +30,5 @@ export function checkSnap(
 
   const distance = Math.sqrt(errorX * errorX + errorY * errorY);
 
-  return distance <= SNAP_TOLERANCE;
+  return distance <= tolerance;
 }

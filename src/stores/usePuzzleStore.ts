@@ -37,6 +37,8 @@ interface PuzzleState {
 
   startGroupDrag: (groupId: string, clientPos: { x: number; y: number }) => void;
   updateGroupDrag: (clientPos: { x: number; y: number }) => void;
+  /** Move the group being dragged so that `anchorId` sits exactly at (x, y). */
+  moveDragGroupTo: (anchorId: string, x: number, y: number) => void;
   endGroupDrag: () => void;
 
   /** Move a whole group so that `anchorId` lands at (x, y). Absolute, so lost messages self-heal. */
@@ -132,6 +134,14 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     const { next } = moveGroup(state.pieces, state.activeDragGroupId, dx, dy);
 
     return { pieces: next, lastDragPos: { ...clientPos } };
+  }),
+
+  moveDragGroupTo: (anchorId, x, y) => set((state) => {
+    const anchor = state.pieces[anchorId];
+    if (!anchor || anchor.groupId !== state.activeDragGroupId) return state;
+    if (anchor.x === x && anchor.y === y) return state;
+    const { next } = moveGroup(state.pieces, anchor.groupId, x - anchor.x, y - anchor.y);
+    return { pieces: next };
   }),
 
   endGroupDrag: () => set({ activeDragGroupId: null, lastDragPos: null }),
