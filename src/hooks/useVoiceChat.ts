@@ -29,7 +29,7 @@ export function useVoiceChat(roomId: string, myId: string) {
     });
   }, []);
 
-  const createPeer = useCallback((peerId: string, initiator: boolean) => {
+  const createPeer = useCallback((peerId: string) => {
     cleanupPeer(peerId);
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
@@ -128,7 +128,7 @@ export function useVoiceChat(roomId: string, myId: string) {
       .on("broadcast", { event: "VOICE_JOIN" }, async ({ payload }) => {
         if (!isVoiceEnabled) return;
         const peerId = payload.from;
-        const pc = createPeer(peerId, true);
+        const pc = createPeer(peerId);
         const offer = await pc.createOffer();
         await pc.setLocalDescription(offer);
         channel.send({
@@ -143,7 +143,7 @@ export function useVoiceChat(roomId: string, myId: string) {
       .on("broadcast", { event: "WEBRTC_OFFER" }, async ({ payload }) => {
         if (!isVoiceEnabled || payload.to !== myId) return;
         const peerId = payload.from;
-        const pc = createPeer(peerId, false);
+        const pc = createPeer(peerId);
         await pc.setRemoteDescription(new RTCSessionDescription(payload.offer));
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
@@ -172,9 +172,11 @@ export function useVoiceChat(roomId: string, myId: string) {
     channelRef.current = channel;
 
     return () => {
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      const peers = peersRef.current;
       supabase.removeChannel(channel);
       channelRef.current = null;
-      Object.keys(peersRef.current).forEach(peerId => cleanupPeer(peerId));
+      Object.keys(peers).forEach(peerId => cleanupPeer(peerId));
     };
   }, [roomId, myId, isVoiceEnabled, createPeer, cleanupPeer]);
 

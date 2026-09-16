@@ -1,12 +1,11 @@
 /* eslint-disable @next/next/no-img-element */
 "use client";
 
-import { useEffect, useState, use, useCallback } from "react";
+import { useEffect, useState, use, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Stage from "@/components/canvas/Stage";
 import TopNav from "@/components/hud/TopNav";
-import Dock from "@/components/hud/Dock";
 import RemoteCursors from "@/components/canvas/RemoteCursors";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 import { usePuzzleMultiplayer } from "@/hooks/usePuzzleMultiplayer";
@@ -23,6 +22,7 @@ interface PuzzleRow {
   actual_cols: number | null;
   seed: number | string;
   aspect_ratio: number;
+  state?: unknown;
 }
 
 export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
@@ -45,53 +45,59 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const searchParams = useSearchParams();
   const isSinglePlayer = searchParams.get("players") === "1";
   const [hasStarted, setHasStarted] = useState(isSinglePlayer);
+  const [isIdle, setIsIdle] = useState(false);
+  const idleTimeout = useRef<NodeJS.Timeout | undefined>(undefined);
   
   // Initialize voice chat
-  const myId = usePuzzleStore((s) => s.username) || "unknown"; // actually myId should be consistent, maybe better pass it from somewhere?
-  // Wait, in usePuzzleMultiplayer it generates myId. I should just use `username` as id or let useVoiceChat generate it? Let's just pass puzzleId to useVoiceChat and generate myId inside useVoiceChat or pass it from here.
-  const { isVoiceEnabled, isMuted, remoteStreams, handleJoinVoice, handleLeaveVoice, toggleMute } = useVoiceChat(puzzleId, username || "guest");
+  const { isVoiceEnabled, isMuted, remoteStreams, handleJoinVoice, toggleMute } = useVoiceChat(puzzleId, username || "guest");
 
-  // Fetch puzzle metadata from Supabase
+  const resetIdleTimer = useCallback(() => {
+    setIsIdle(false);
+    clearTimeout(idleTimeout.current);
+    idleTimeout.current = setTimeout(() => setIsIdle(true), 2500);
+  }, []);
+
+  useEffect(() => {
+    idleTimeout.current = setTimeout(() => setIsIdle(true), 2500);
+    return () => {
+      if (idleTimeout.current) clearTimeout(idleTimeout.current);
+    };
+  }, []);
+
+  // Fetch puzzle metadata and state from Supabase
   useEffect(() => {
     let cancelled = false;
     supabase
       .from("puzzles")
-      .select("id,image_url,target_pieces,actual_rows,actual_cols,seed,aspect_ratio")
+      .select("id,image_url,target_pieces,actual_rows,actual_cols,seed,aspect_ratio,state")
       .eq("id", puzzleId)
       .single()
-      .then(({ data, error }) => {
+      .then(async ({ data, error }) => {
         if (cancelled) return;
         if (error || !data) {
           setNotFound(true);
           return;
         }
         setPuzzle(data as PuzzleRow);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [puzzleId]);
 
-  // Bind the store to this puzzle and offer to resume a local save (once).
-  useEffect(() => {
-    const { setPuzzleId, loadSavedGame, clearSavedGame } = usePuzzleStore.getState();
-    setPuzzleId(puzzleId);
-
-    let cancelled = false;
-    import("idb-keyval").then(({ get }) =>
-      get(`puzzle-${puzzleId}`).then(async (saved) => {
-        if (cancelled) return;
-        // If a peer already handed us the live board, the local save is stale.
-        if (saved && !usePuzzleStore.getState().remoteSynced) {
-          if (window.confirm("You have an unfinished puzzle. Would you like to resume?")) {
-            await loadSavedGame(puzzleId);
+        const { setPuzzleId, setPieces, loadSavedGame } = usePuzzleStore.getState();
+        setPuzzleId(puzzleId);
+        
+        // If a peer already synced us, we don't need to load any old state
+        if (!usePuzzleStore.getState().remoteSynced) {
+          let loaded = false;
+          if (data.state) {
+            setPieces(data.state.pieces, data.state.renderOrder);
+            loaded = true;
           } else {
-            await clearSavedGame(puzzleId);
+             loaded = await loadSavedGame(puzzleId);
+          }
+          if (loaded) {
+             setHasStarted(true); // Skip lobby if resuming a game
           }
         }
-        if (!cancelled) setSaveChecked(true);
-      })
-    );
+        setSaveChecked(true);
+      });
     return () => {
       cancelled = true;
     };
@@ -157,7 +163,12 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const showUsernameModal = !username;
 
   return (
-    <main className="w-screen h-[100dvh] overflow-hidden relative" style={{ backgroundColor }}>
+    <main 
+      className="w-screen h-[100dvh] overflow-hidden relative" 
+      style={{ backgroundColor }}
+      onMouseMove={resetIdleTimer}
+      onTouchStart={resetIdleTimer}
+    >
       {/* Texture Overlay */}
       <div 
         className="absolute inset-0 pointer-events-none opacity-20 mix-blend-multiply"
@@ -262,8 +273,15 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
 
       {hasStarted && (
         <>
-          <TopNav />
-          <div className="absolute top-16 right-3 z-10 w-24 sm:w-36 md:w-48 rounded-lg shadow-2xl border-2 border-[#2a2a2a] overflow-hidden pointer-events-none opacity-70 hover:opacity-100 transition-opacity">
+          <TopNav 
+            isIdle={isIdle}
+            onReset={handleReset}
+            isVoiceEnabled={isVoiceEnabled}
+            isMuted={isMuted}
+            onJoinVoice={handleJoinVoice}
+            onToggleMute={toggleMute}
+          />
+          <div className={`absolute top-16 right-3 z-10 w-24 sm:w-36 md:w-48 rounded-lg shadow-2xl border-2 border-[#2a2a2a] overflow-hidden pointer-events-none transition-opacity duration-500 ${isIdle ? 'opacity-0' : 'opacity-70 hover:opacity-100'}`}>
             <img src={puzzle.image_url} alt="Reference" className="w-full h-auto" />
           </div>
           <RemoteCursors />
@@ -276,19 +294,12 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
             sendGroupMove={sendGroupMove}
             sendGroupMerge={sendGroupMerge}
           />
-          <Dock 
-            onReset={handleReset} 
-            isVoiceEnabled={isVoiceEnabled}
-            isMuted={isMuted}
-            onJoinVoice={handleJoinVoice}
-            onToggleMute={toggleMute}
-          />
           <RemoteAudio streams={remoteStreams} />
 
           {/* Floating Image Preview */}
           {previewVisible && (
-            <div className="absolute top-24 right-4 sm:right-8 w-48 sm:w-64 bg-black/60 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-2xl z-20 pointer-events-auto flex justify-center">
-              <img src={puzzle.image_url} alt="Preview" className="w-full max-h-[70dvh] rounded-xl object-contain shadow-inner" />
+            <div className="absolute top-24 right-4 sm:right-8 w-48 sm:w-64 bg-black/60 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-2xl z-20 pointer-events-none flex justify-center">
+              <img src={puzzle.image_url} alt="Preview" className="w-full max-h-[70dvh] rounded-xl object-contain shadow-inner pointer-events-auto" />
             </div>
           )}
         </>

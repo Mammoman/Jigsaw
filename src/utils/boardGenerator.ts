@@ -53,15 +53,42 @@ export function generateTabs({ seed, rows, cols }: BoardConfig): Record<string, 
 
 /**
  * Fresh, unsolved board: every piece is its own group, scattered around the
- * board perimeter. Deterministic in the seed and board size only (no viewport
- * dependence) so every client starts from the same layout.
+ * board perimeter in a neat grid layout. Deterministic in the seed and board 
+ * size so every client starts from the exact same layout.
  */
 export function generatePieces({ seed, rows, cols, pieceWidth, pieceHeight }: BoardConfig) {
   // Separate stream from the tab generator so scatter doesn't shift piece shapes.
   const random = mulberry32(seed ^ 0x9e3779b9);
-  const boardWidth = cols * pieceWidth;
-  const boardHeight = rows * pieceHeight;
-  const maxSide = Math.max(boardWidth, boardHeight);
+
+  // Calculate required padding P so that the outer perimeter has enough slots
+  // Total slots in outer grid = (rows + 2P) * (cols + 2P)
+  // Inner hole = rows * cols
+  // Available slots = outer - inner
+  let P = 1;
+  while ((rows + 2 * P) * (cols + 2 * P) - (rows * cols) < rows * cols) {
+    P++;
+  }
+  
+  // Create a slight gap between scattered pieces
+  const spacing = 1.02; 
+  
+  // Collect all available perimeter slots
+  const slots: { r: number; c: number }[] = [];
+  for (let r = 0; r < rows + 2 * P; r++) {
+    for (let c = 0; c < cols + 2 * P; c++) {
+      // If it's inside the central "hole" (the solved puzzle area), skip it
+      if (r >= P && r < P + rows && c >= P && c < P + cols) {
+        continue;
+      }
+      slots.push({ r, c });
+    }
+  }
+
+  // Shuffle slots deterministically
+  for (let i = slots.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [slots[i], slots[j]] = [slots[j], slots[i]];
+  }
 
   const pieces: Record<string, PieceRuntimeState> = {};
   const renderOrder: string[] = [];
@@ -69,19 +96,29 @@ export function generatePieces({ seed, rows, cols, pieceWidth, pieceHeight }: Bo
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const id = pieceId(r, c);
-      const angle = random() * Math.PI * 2;
-      // Tighter scatter: cluster them closer to the center so the bounding box is smaller, making pieces bigger when fit-to-screen
-      const dist = maxSide * 0.4 + random() * (maxSide * 0.3);
+      const slot = slots.pop()!; // Guaranteed to have enough slots
+      
+      // Calculate world coordinates. The central board is implicitly at x=0, y=0.
+      // So slot.c = P maps to x = 0.
+      const jitterX = (random() - 0.5) * (pieceWidth * 0.15);
+      const jitterY = (random() - 0.5) * (pieceHeight * 0.15);
+
       pieces[id] = {
         id,
         row: r,
         col: c,
-        x: Math.round(boardWidth / 2 + Math.cos(angle) * dist - pieceWidth / 2),
-        y: Math.round(boardHeight / 2 + Math.sin(angle) * dist - pieceHeight / 2),
+        x: Math.round((slot.c - P) * (pieceWidth * spacing) + jitterX),
+        y: Math.round((slot.r - P) * (pieceHeight * spacing) + jitterY),
         groupId: id,
       };
       renderOrder.push(id);
     }
+  }
+
+  // Shuffle render order so pieces on the bottom render on top randomly
+  for (let i = renderOrder.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [renderOrder[i], renderOrder[j]] = [renderOrder[j], renderOrder[i]];
   }
 
   return { pieces, renderOrder };

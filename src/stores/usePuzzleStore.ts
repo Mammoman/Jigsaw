@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { PieceRuntimeState } from "../types/puzzle";
 import { BoardConfig, generatePieces } from "../utils/boardGenerator";
+import { supabase } from "@/lib/supabase/client";
 
 export type PiecePositions = Record<string, { x: number; y: number }>;
 
@@ -258,6 +259,8 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   })
 }));
 
+let supabaseSaveTimeout: ReturnType<typeof setTimeout>;
+
 usePuzzleStore.subscribe((state, prevState) => {
   // Only auto-save if we have a puzzleId, pieces exist, and pieces/renderOrder actually changed.
   // We avoid saving mid-drag by checking if activeDragGroupId is null.
@@ -267,10 +270,27 @@ usePuzzleStore.subscribe((state, prevState) => {
     Object.keys(state.pieces).length > 0 &&
     (state.pieces !== prevState.pieces || state.renderOrder !== prevState.renderOrder)
   ) {
-    idbSet(`puzzle-${state.puzzleId}`, {
+    const payload = {
       pieces: state.pieces,
       renderOrder: state.renderOrder
-    }).catch(e => console.error("Auto-save failed", e));
+    };
+    
+    // Local persistence
+    idbSet(`puzzle-${state.puzzleId}`, payload).catch(e => console.error("Auto-save failed", e));
+    
+    // Server persistence (debounced)
+    clearTimeout(supabaseSaveTimeout);
+    supabaseSaveTimeout = setTimeout(() => {
+      // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+      // @ts-ignore
+      supabase
+        .from("puzzles")
+        .update({ state: payload })
+        .eq("id", state.puzzleId)
+        .then(({ error }) => {
+          if (error) console.error("Failed to save state to server", error);
+        });
+    }, 2000);
   }
 });
 

@@ -58,6 +58,7 @@ export default function Stage({
   const [initialized, setInitialized] = useState(false);
   const piecePathsRef = useRef<Record<string, Path2D>>({});
   const configRef = useRef<BoardConfig | null>(null);
+  const remoteSynced = usePuzzleStore((s) => s.remoteSynced);
 
   // Interaction state
   const isPointerDown = useRef(false);
@@ -109,7 +110,6 @@ export default function Stage({
   useEffect(() => {
     if (!initialized) return;
     
-    const store = usePuzzleStore.getState();
     const config = configRef.current;
     if (!config) return;
 
@@ -125,9 +125,10 @@ export default function Stage({
         maxY = Math.max(maxY, p.y + config.pieceHeight);
       }
       
-      const pad = config.pieceWidth;
-      const extentW = maxX - minX + pad * 2;
-      const extentH = maxY - minY + pad * 2;
+      const padX = config.pieceWidth * 0.5;
+      const padY = config.pieceHeight * 0.5;
+      const extentW = maxX - minX + padX * 2;
+      const extentH = maxY - minY + padY * 2;
       
       const scale = Math.min(window.innerWidth / extentW, window.innerHeight / extentH);
       usePuzzleStore.getState().setCamera({
@@ -145,7 +146,7 @@ export default function Stage({
     return () => {
       window.removeEventListener("resize", handleResize);
     };
-  }, [initialized, usePuzzleStore((s) => s.remoteSynced)]);
+  }, [initialized, remoteSynced]);
 
   // ── Render loop ────────────────────────────────────────────────
   useEffect(() => {
@@ -159,7 +160,7 @@ export default function Stage({
     let animationFrameId = 0;
 
     const draw = () => {
-      const { image, pieces, renderOrder, camera, activeDragGroupId, showEdgesOnly, backgroundColor } =
+      const { image, pieces, renderOrder, camera, activeDragGroupId, showEdgesOnly } =
         usePuzzleStore.getState();
       const config = configRef.current;
       if (!image || !config) return;
