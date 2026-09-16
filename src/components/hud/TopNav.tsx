@@ -27,12 +27,10 @@ export default function TopNav({
   onJoinVoice,
   onToggleMute
 }: TopNavProps) {
-  const { pieces, previewVisible, showEdgesOnly, backgroundColor } = usePuzzleStore((s) => ({
-    pieces: s.pieces,
-    previewVisible: s.previewVisible,
-    showEdgesOnly: s.showEdgesOnly,
-    backgroundColor: s.backgroundColor,
-  }));
+  const pieces = usePuzzleStore((s) => s.pieces);
+  const previewVisible = usePuzzleStore((s) => s.previewVisible);
+  const showEdgesOnly = usePuzzleStore((s) => s.showEdgesOnly);
+  const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
   const { togglePreview, toggleShowEdgesOnly, setBackgroundColor } = usePuzzleStore.getState();
 
   const [elapsed, setElapsed] = useState(0);
