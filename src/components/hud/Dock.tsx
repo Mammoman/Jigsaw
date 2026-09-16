@@ -19,18 +19,18 @@ interface DockProps {
 }
 
 export default function Dock({ onReset, isVoiceEnabled, isMuted, onJoinVoice, onToggleMute }: DockProps) {
-  const ghostImageVisible = usePuzzleStore((s) => s.ghostImageVisible);
+  const previewVisible = usePuzzleStore((s) => s.previewVisible);
   const showEdgesOnly = usePuzzleStore((s) => s.showEdgesOnly);
   const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
-  const { toggleGhostImage, toggleShowEdgesOnly, setBackgroundColor } = usePuzzleStore.getState();
+  const { togglePreview, toggleShowEdgesOnly, setBackgroundColor } = usePuzzleStore.getState();
 
   return (
     <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 pointer-events-none z-10">
       <div className="bg-black/60 backdrop-blur-md rounded-2xl p-1.5 sm:p-2 flex items-center gap-1 sm:gap-2 pointer-events-auto border border-white/10 shadow-2xl">
         <button
-          onClick={toggleGhostImage}
-          className={`p-3.5 sm:p-3 rounded-xl transition-colors ${ghostImageVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10 text-white"}`}
-          title="Toggle Ghost Image"
+          onClick={togglePreview}
+          className={`p-3.5 sm:p-3 rounded-xl transition-colors ${previewVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10 text-white"}`}
+          title="Toggle Image Preview"
         >
           <ImageIcon className="w-5 h-5" />
         </button>

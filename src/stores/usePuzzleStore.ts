@@ -16,7 +16,7 @@ interface PuzzleState {
   remoteSynced: boolean;
 
   // Settings
-  ghostImageVisible: boolean;
+  previewVisible: boolean;
   showEdgesOnly: boolean;
   backgroundColor: string;
 
@@ -56,7 +56,7 @@ interface PuzzleState {
   loadSavedGame: (puzzleId: string) => Promise<boolean>;
   clearSavedGame: (puzzleId: string) => Promise<void>;
 
-  toggleGhostImage: () => void;
+  togglePreview: () => void;
   toggleShowEdgesOnly: () => void;
   setBackgroundColor: (color: string) => void;
 
@@ -94,7 +94,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   pieces: {},
   renderOrder: [],
   remoteSynced: false,
-  ghostImageVisible: false,
+  previewVisible: false,
   showEdgesOnly: false,
   backgroundColor: "#7598b5",
   camera: { x: 0, y: 0, scale: 1 },
@@ -240,7 +240,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     }
   },
 
-  toggleGhostImage: () => set((state) => ({ ghostImageVisible: !state.ghostImageVisible })),
+  togglePreview: () => set((state) => ({ previewVisible: !state.previewVisible })),
   toggleShowEdgesOnly: () => set((state) => ({ showEdgesOnly: !state.showEdgesOnly })),
   setBackgroundColor: (color) => set({ backgroundColor: color }),
 

@@ -32,6 +32,7 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const playerCount = usePuzzleStore((s) => s.playerCount);
   const setUsername = usePuzzleStore((s) => s.setUsername);
   const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
+  const previewVisible = usePuzzleStore((s) => s.previewVisible);
 
   const { sendPointerMove, sendGroupMove, sendGroupMerge, sendReset } =
     usePuzzleMultiplayer(puzzleId);
@@ -283,6 +284,13 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
             onToggleMute={toggleMute}
           />
           <RemoteAudio streams={remoteStreams} />
+
+          {/* Floating Image Preview */}
+          {previewVisible && (
+            <div className="absolute top-24 right-4 sm:right-8 w-48 sm:w-64 bg-black/60 backdrop-blur-md p-2 rounded-2xl border border-white/10 shadow-2xl z-20 pointer-events-auto flex justify-center">
+              <img src={puzzle.image_url} alt="Preview" className="w-full max-h-[70dvh] rounded-xl object-contain shadow-inner" />
+            </div>
+          )}
         </>
       )}
     </main>

@@ -98,40 +98,54 @@ export default function Stage({
         store.setPieces(pieces, renderOrder);
       }
 
-      // Fit every piece (scattered ring or restored layout) into the viewport.
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      for (const p of Object.values(usePuzzleStore.getState().pieces)) {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x + config.pieceWidth);
-        maxY = Math.max(maxY, p.y + config.pieceHeight);
-      }
-      const pad = config.pieceWidth;
-      const extentW = maxX - minX + pad * 2;
-      const extentH = maxY - minY + pad * 2;
-      
-      const updateCamera = () => {
-        const scale = Math.min(window.innerWidth / extentW, window.innerHeight / extentH);
-        usePuzzleStore.getState().setCamera({
-          x: window.innerWidth / 2 - ((minX + maxX) / 2) * scale,
-          y: window.innerHeight / 2 - ((minY + maxY) / 2) * scale,
-          scale,
-        });
-      };
-      
-      updateCamera();
-      
-      const handleResize = () => {
-        updateCamera();
-      };
-      window.addEventListener("resize", handleResize);
-      
       setInitialized(true);
     };
     return () => {
       cancelled = true;
     };
   }, [imageUrl, seed, rows, cols]);
+
+  // Recalculate camera based on actual pieces (handles both Player 1 scatter and Player 2 sync)
+  useEffect(() => {
+    if (!initialized) return;
+    
+    const store = usePuzzleStore.getState();
+    const config = configRef.current;
+    if (!config) return;
+
+    const updateCamera = () => {
+      const allPieces = Object.values(usePuzzleStore.getState().pieces);
+      if (allPieces.length === 0) return;
+
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of allPieces) {
+        minX = Math.min(minX, p.x);
+        minY = Math.min(minY, p.y);
+        maxX = Math.max(maxX, p.x + config.pieceWidth);
+        maxY = Math.max(maxY, p.y + config.pieceHeight);
+      }
+      
+      const pad = config.pieceWidth;
+      const extentW = maxX - minX + pad * 2;
+      const extentH = maxY - minY + pad * 2;
+      
+      const scale = Math.min(window.innerWidth / extentW, window.innerHeight / extentH);
+      usePuzzleStore.getState().setCamera({
+        x: window.innerWidth / 2 - ((minX + maxX) / 2) * scale,
+        y: window.innerHeight / 2 - ((minY + maxY) / 2) * scale,
+        scale,
+      });
+    };
+
+    updateCamera();
+    
+    const handleResize = () => updateCamera();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [initialized, usePuzzleStore((s) => s.remoteSynced)]);
 
   // ── Render loop ────────────────────────────────────────────────
   useEffect(() => {
@@ -145,7 +159,7 @@ export default function Stage({
     let animationFrameId = 0;
 
     const draw = () => {
-      const { image, pieces, renderOrder, camera, activeDragGroupId, ghostImageVisible, showEdgesOnly, backgroundColor } =
+      const { image, pieces, renderOrder, camera, activeDragGroupId, showEdgesOnly, backgroundColor } =
         usePuzzleStore.getState();
       const config = configRef.current;
       if (!image || !config) return;
@@ -156,12 +170,7 @@ export default function Stage({
       ctx.translate(camera.x, camera.y);
       ctx.scale(camera.scale, camera.scale);
 
-      if (ghostImageVisible) {
-        ctx.save();
-        ctx.globalAlpha = 0.15;
-        ctx.drawImage(image, 0, 0);
-        ctx.restore();
-      }
+
 
       // Frustum cull: skip pieces entirely outside the viewport (in world space).
       const viewL = -camera.x / camera.scale;
@@ -222,7 +231,7 @@ export default function Stage({
       animationFrameId = requestAnimationFrame(loop);
     };
 
-    const handleResize = () => {
+    const handleResizeCanvas = () => {
       if (!canvasRef.current) return;
       canvasRef.current.width = window.innerWidth;
       canvasRef.current.height = window.innerHeight;
@@ -232,14 +241,14 @@ export default function Stage({
     const unsubscribe = usePuzzleStore.subscribe(() => {
       dirty = true;
     });
-    window.addEventListener("resize", handleResize);
-    handleResize();
+    window.addEventListener("resize", handleResizeCanvas);
+    handleResizeCanvas();
     loop();
 
     return () => {
       cancelAnimationFrame(animationFrameId);
       unsubscribe();
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", handleResizeCanvas);
     };
   }, [initialized, rows, cols]);
 

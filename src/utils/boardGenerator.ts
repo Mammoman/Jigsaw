@@ -70,7 +70,8 @@ export function generatePieces({ seed, rows, cols, pieceWidth, pieceHeight }: Bo
     for (let c = 0; c < cols; c++) {
       const id = pieceId(r, c);
       const angle = random() * Math.PI * 2;
-      const dist = maxSide / 2 + 100 + random() * (maxSide / 2);
+      // Tighter scatter: cluster them closer to the center so the bounding box is smaller, making pieces bigger when fit-to-screen
+      const dist = maxSide * 0.4 + random() * (maxSide * 0.3);
       pieces[id] = {
         id,
         row: r,
