@@ -16,8 +16,6 @@ interface StageProps {
   sendGroupMerge: (groupId: string, positions: PiecePositions) => void;
 }
 
-const MIN_SCALE = 0.1;
-const MAX_SCALE = 5;
 
 function playSnapSound() {
   try {
@@ -64,10 +62,7 @@ export default function Stage({
   // Interaction state
   const isPointerDown = useRef(false);
   const activePointers = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const initialPinchDist = useRef<number | null>(null);
-  const initialPinchScale = useRef<number | null>(null);
   const lastPointerPos = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const isPanning = useRef(false);
 
   // ── Board setup ────────────────────────────────────────────────
   useEffect(() => {
@@ -114,16 +109,23 @@ export default function Stage({
       const pad = config.pieceWidth;
       const extentW = maxX - minX + pad * 2;
       const extentH = maxY - minY + pad * 2;
-      const scale = Math.min(
-        MAX_SCALE,
-        Math.max(MIN_SCALE, Math.min(window.innerWidth / extentW, window.innerHeight / extentH))
-      );
-      store.setCamera({
-        x: window.innerWidth / 2 - ((minX + maxX) / 2) * scale,
-        y: window.innerHeight / 2 - ((minY + maxY) / 2) * scale,
-        scale,
-      });
-
+      
+      const updateCamera = () => {
+        const scale = Math.min(window.innerWidth / extentW, window.innerHeight / extentH);
+        usePuzzleStore.getState().setCamera({
+          x: window.innerWidth / 2 - ((minX + maxX) / 2) * scale,
+          y: window.innerHeight / 2 - ((minY + maxY) / 2) * scale,
+          scale,
+        });
+      };
+      
+      updateCamera();
+      
+      const handleResize = () => {
+        updateCamera();
+      };
+      window.addEventListener("resize", handleResize);
+      
       setInitialized(true);
     };
     return () => {
@@ -143,13 +145,12 @@ export default function Stage({
     let animationFrameId = 0;
 
     const draw = () => {
-      const { image, pieces, renderOrder, camera, activeDragGroupId, ghostImageVisible, showEdgesOnly } =
+      const { image, pieces, renderOrder, camera, activeDragGroupId, ghostImageVisible, showEdgesOnly, backgroundColor } =
         usePuzzleStore.getState();
       const config = configRef.current;
       if (!image || !config) return;
 
-      ctx.fillStyle = "#1e1e1e";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
       ctx.save();
       ctx.translate(camera.x, camera.y);
@@ -222,8 +223,9 @@ export default function Stage({
     };
 
     const handleResize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      if (!canvasRef.current) return;
+      canvasRef.current.width = window.innerWidth;
+      canvasRef.current.height = window.innerHeight;
       dirty = true;
     };
 
@@ -264,22 +266,9 @@ export default function Stage({
 
     const store = usePuzzleStore.getState();
 
-    if (activePointers.current.size === 2) {
-      // Start pinch-to-zoom
-      const pts = Array.from(activePointers.current.values());
-      initialPinchDist.current = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      initialPinchScale.current = store.camera.scale;
-      isPanning.current = false;
-      if (store.activeDragGroupId) {
-        store.endGroupDrag();
-      }
-      return;
-    }
-
-    if (activePointers.current.size > 2) return;
+    if (activePointers.current.size >= 2) return;
 
     if (e.button === 1 || e.button === 2) {
-      isPanning.current = true;
       return;
     }
 
@@ -306,7 +295,7 @@ export default function Stage({
     }
     ctx.restore();
 
-    isPanning.current = true;
+    // panning removed
   };
 
   const handlePointerMove = (e: React.PointerEvent) => {
@@ -317,41 +306,62 @@ export default function Stage({
       activePointers.current.set(e.pointerId, pos);
     }
 
-    if (
-      activePointers.current.size === 2 &&
-      initialPinchDist.current !== null &&
-      initialPinchScale.current !== null
-    ) {
-      // Handle pinch-to-zoom
-      const pts = Array.from(activePointers.current.values());
-      const currentDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-      const scaleFactor = currentDist / initialPinchDist.current;
-      const newScale = Math.min(Math.max(MIN_SCALE, initialPinchScale.current * scaleFactor), MAX_SCALE);
-
-      const focalX = (pts[0].x + pts[1].x) / 2;
-      const focalY = (pts[0].y + pts[1].y) / 2;
-      const { camera } = store;
-
-      const ds = newScale - camera.scale;
-      const dx = -(focalX - camera.x) * (ds / camera.scale);
-      const dy = -(focalY - camera.y) * (ds / camera.scale);
-
-      store.setCamera({ x: camera.x + dx, y: camera.y + dy, scale: newScale });
-      return;
-    }
 
     const canvasPos = getCanvasPos(e);
 
     if (isPointerDown.current && activePointers.current.size === 1) {
-      if (isPanning.current) {
-        store.panCamera(pos.x - lastPointerPos.current.x, pos.y - lastPointerPos.current.y);
-        lastPointerPos.current = pos;
-      } else if (store.activeDragGroupId) {
-        store.updateGroupDrag(canvasPos);
-        lastPointerPos.current = pos;
-        const after = usePuzzleStore.getState();
-        const anchor = Object.values(after.pieces).find((p) => p.groupId === after.activeDragGroupId);
-        if (anchor) sendGroupMove(anchor.id, anchor.x, anchor.y);
+      if (store.activeDragGroupId) {
+        // Compute clamped position
+        const { camera } = store;
+        const groupPieces = Object.values(store.pieces).filter((p) => p.groupId === store.activeDragGroupId);
+        if (groupPieces.length > 0) {
+          const config = configRef.current!;
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+          for (const p of groupPieces) {
+            minX = Math.min(minX, p.x);
+            minY = Math.min(minY, p.y);
+            maxX = Math.max(maxX, p.x + config.pieceWidth);
+            maxY = Math.max(maxY, p.y + config.pieceHeight);
+          }
+          
+          // Current world position we are trying to move to
+          const dx = (canvasPos.x - lastPointerPos.current.x) / camera.scale;
+          const dy = (canvasPos.y - lastPointerPos.current.y) / camera.scale;
+          
+          // Viewport bounds in world space
+          const viewL = -camera.x / camera.scale;
+          const viewT = -camera.y / camera.scale;
+          const viewR = viewL + window.innerWidth / camera.scale;
+          const viewB = viewT + window.innerHeight / camera.scale;
+          
+          // Clamp dx, dy
+          const newMinX = minX + dx;
+          const newMaxX = maxX + dx;
+          const newMinY = minY + dy;
+          const newMaxY = maxY + dy;
+          
+          let clampedDx = dx;
+          let clampedDy = dy;
+          
+          if (newMinX < viewL) clampedDx += (viewL - newMinX);
+          else if (newMaxX > viewR) clampedDx -= (newMaxX - viewR);
+          
+          if (newMinY < viewT) clampedDy += (viewT - newMinY);
+          else if (newMaxY > viewB) clampedDy -= (newMaxY - viewB);
+
+          // Update store with clamped offset
+          const clampedCanvasPos = {
+            x: lastPointerPos.current.x + clampedDx * camera.scale,
+            y: lastPointerPos.current.y + clampedDy * camera.scale
+          };
+
+          store.updateGroupDrag(clampedCanvasPos);
+          lastPointerPos.current = clampedCanvasPos;
+          
+          const after = usePuzzleStore.getState();
+          const anchor = Object.values(after.pieces).find((p) => p.groupId === after.activeDragGroupId);
+          if (anchor) sendGroupMove(anchor.id, anchor.x, anchor.y);
+        }
       }
     }
 
@@ -363,16 +373,13 @@ export default function Stage({
     e.currentTarget.releasePointerCapture(e.pointerId);
     activePointers.current.delete(e.pointerId);
 
-    if (activePointers.current.size < 2) {
-      initialPinchDist.current = null;
-      initialPinchScale.current = null;
-    }
+
 
     if (activePointers.current.size === 0) {
       isPointerDown.current = false;
     }
 
-    isPanning.current = false;
+
     lastPointerPos.current = { x: 0, y: 0 };
 
     const store = usePuzzleStore.getState();
@@ -413,10 +420,7 @@ export default function Stage({
     }
   };
 
-  const handleWheel = (e: React.WheelEvent) => {
-    const scaleDelta = e.deltaY < 0 ? 0.1 : -0.1;
-    usePuzzleStore.getState().zoomCamera(scaleDelta, getCanvasPos(e));
-  };
+
 
   return (
     <canvas
@@ -425,7 +429,6 @@ export default function Stage({
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
-      onWheel={handleWheel}
       onContextMenu={(e) => e.preventDefault()}
       className="w-full h-full touch-none block overscroll-none"
     />

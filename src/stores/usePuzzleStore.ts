@@ -18,6 +18,7 @@ interface PuzzleState {
   // Settings
   ghostImageVisible: boolean;
   showEdgesOnly: boolean;
+  backgroundColor: string;
 
   camera: { x: number; y: number; scale: number };
 
@@ -31,7 +32,6 @@ interface PuzzleState {
   remoteCursors: Record<string, { x: number; y: number; color: string; username?: string }>;
 
   panCamera: (dx: number, dy: number) => void;
-  zoomCamera: (scaleDelta: number, focalPoint: { x: number; y: number }) => void;
   setCamera: (camera: { x: number; y: number; scale: number }) => void;
 
   startGroupDrag: (groupId: string, clientPos: { x: number; y: number }) => void;
@@ -58,6 +58,7 @@ interface PuzzleState {
 
   toggleGhostImage: () => void;
   toggleShowEdgesOnly: () => void;
+  setBackgroundColor: (color: string) => void;
 
   updateRemoteCursor: (id: string, x: number, y: number, color: string, username?: string) => void;
   removeRemoteCursor: (id: string) => void;
@@ -87,7 +88,7 @@ function moveGroup(
 
 export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   puzzleId: null,
-  username: null,
+  username: typeof window !== "undefined" ? localStorage.getItem("puzzle-username") : null,
   boardConfig: null,
   image: null,
   pieces: {},
@@ -95,6 +96,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
   remoteSynced: false,
   ghostImageVisible: false,
   showEdgesOnly: false,
+  backgroundColor: "#7598b5",
   camera: { x: 0, y: 0, scale: 1 },
   activeDragGroupId: null,
   lastDragPos: null,
@@ -105,22 +107,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     camera: { ...state.camera, x: state.camera.x + dx, y: state.camera.y + dy }
   })),
 
-  zoomCamera: (scaleDelta, focalPoint) => set((state) => {
-    const scaleFactor = 1 + scaleDelta;
-    const newScale = Math.min(Math.max(0.1, state.camera.scale * scaleFactor), 5);
 
-    const ds = newScale - state.camera.scale;
-    const dx = -(focalPoint.x - state.camera.x) * (ds / state.camera.scale);
-    const dy = -(focalPoint.y - state.camera.y) * (ds / state.camera.scale);
-
-    return {
-      camera: {
-        x: state.camera.x + dx,
-        y: state.camera.y + dy,
-        scale: newScale
-      }
-    };
-  }),
 
   setCamera: (camera) => set({ camera }),
 
@@ -223,7 +210,12 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
     };
   }),
 
-  setUsername: (username) => set({ username }),
+  setUsername: (username) => {
+    if (typeof window !== "undefined" && username) {
+      localStorage.setItem("puzzle-username", username);
+    }
+    set({ username });
+  },
   setPlayerCount: (count) => set({ playerCount: count }),
 
   loadSavedGame: async (puzzleId) => {
@@ -250,6 +242,7 @@ export const usePuzzleStore = create<PuzzleState>((set, get) => ({
 
   toggleGhostImage: () => set((state) => ({ ghostImageVisible: !state.ghostImageVisible })),
   toggleShowEdgesOnly: () => set((state) => ({ showEdgesOnly: !state.showEdgesOnly })),
+  setBackgroundColor: (color) => set({ backgroundColor: color }),
 
   updateRemoteCursor: (id, x, y, color, username) => set((state) => ({
     remoteCursors: {

@@ -1,26 +1,28 @@
 "use client";
 
 import React from "react";
-import { ZoomIn, ZoomOut, RotateCcw, Image as ImageIcon, Frame } from "lucide-react";
+import { RotateCcw, Image as ImageIcon, Frame, Mic, MicOff, Palette } from "lucide-react";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
+
+const BG_COLORS = [
+  { label: "Gray", value: "#a1a1aa" },
+  { label: "Blue", value: "#7598b5" },
+  { label: "Purple", value: "#c4b5fd" },
+];
 
 interface DockProps {
   onReset: () => void;
+  isVoiceEnabled: boolean;
+  isMuted: boolean;
+  onJoinVoice: () => void;
+  onToggleMute: () => void;
 }
 
-export default function Dock({ onReset }: DockProps) {
-  const scale = usePuzzleStore((s) => s.camera.scale);
+export default function Dock({ onReset, isVoiceEnabled, isMuted, onJoinVoice, onToggleMute }: DockProps) {
   const ghostImageVisible = usePuzzleStore((s) => s.ghostImageVisible);
   const showEdgesOnly = usePuzzleStore((s) => s.showEdgesOnly);
-  const { zoomCamera, toggleGhostImage, toggleShowEdgesOnly } = usePuzzleStore.getState();
-
-  const handleZoomIn = () => {
-    zoomCamera(0.2, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  };
-
-  const handleZoomOut = () => {
-    zoomCamera(-0.2, { x: window.innerWidth / 2, y: window.innerHeight / 2 });
-  };
+  const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
+  const { toggleGhostImage, toggleShowEdgesOnly, setBackgroundColor } = usePuzzleStore.getState();
 
   return (
     <div className="absolute bottom-6 sm:bottom-8 left-1/2 -translate-x-1/2 pointer-events-none z-10">
@@ -40,25 +42,44 @@ export default function Dock({ onReset }: DockProps) {
           <Frame className="w-5 h-5" />
         </button>
         <div className="w-px h-6 bg-white/20 mx-1" />
-        <button
-          onClick={handleZoomIn}
-          className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
-          title="Zoom In"
-        >
-          <ZoomIn className="w-5 h-5" />
-        </button>
-        <div className="w-px h-6 bg-white/20 mx-1" />
-        <button
-          onClick={handleZoomOut}
-          className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
-          title="Zoom Out"
-        >
-          <ZoomOut className="w-5 h-5" />
-        </button>
-        <div className="w-px h-6 bg-white/20 mx-1" />
-        <div className="px-3 text-white/50 text-sm font-mono">
-          {Math.round(scale * 100)}%
+        <div className="flex gap-1 relative group">
+          <button className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors">
+            <Palette className="w-5 h-5" />
+          </button>
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 pb-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex flex-col items-center">
+            <div className="flex gap-2 bg-black/80 backdrop-blur rounded-xl p-2 shadow-xl border border-white/10">
+              {BG_COLORS.map((bg) => (
+                <button
+                  key={bg.value}
+                  className={`w-6 h-6 rounded-full border-2 ${backgroundColor === bg.value ? "border-white" : "border-transparent"}`}
+                  style={{ backgroundColor: bg.value }}
+                  onClick={() => setBackgroundColor(bg.value)}
+                  title={bg.label}
+                />
+              ))}
+            </div>
+          </div>
         </div>
+        <div className="w-px h-6 bg-white/20 mx-1" />
+        
+        {isVoiceEnabled ? (
+          <button
+            onClick={onToggleMute}
+            className={`p-3.5 sm:p-3 rounded-xl transition-colors ${isMuted ? "bg-red-500/30 text-red-400" : "bg-green-500/30 text-green-400"}`}
+            title={isMuted ? "Unmute" : "Mute"}
+          >
+            {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+          </button>
+        ) : (
+          <button
+            onClick={onJoinVoice}
+            className="p-3.5 sm:p-3 hover:bg-white/10 rounded-xl text-white transition-colors"
+            title="Join Voice Chat"
+          >
+            <MicOff className="w-5 h-5 opacity-50" />
+          </button>
+        )}
+        
         <div className="w-px h-6 bg-white/20 mx-1" />
         <button
           onClick={onReset}

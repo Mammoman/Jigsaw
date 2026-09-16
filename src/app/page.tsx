@@ -15,6 +15,7 @@ export default function HomePage() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
   const [targetPieces, setTargetPieces] = useState(96);
+  const [targetPlayers, setTargetPlayers] = useState(2);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,7 +77,7 @@ export default function HomePage() {
       }).select("id").single();
       if (dbError) throw dbError;
 
-      router.push(`/play/${puzzle.id}`);
+      router.push(`/play/${puzzle.id}?players=${targetPlayers}`);
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Something went wrong.");
       setIsCreating(false);
@@ -158,6 +159,37 @@ export default function HomePage() {
             </select>
             <p className="text-xs text-white/20">
               {targetPieces <= 55 ? "Great for beginners" : targetPieces <= 118 ? "Moderate challenge" : targetPieces <= 250 ? "Experienced puzzlers" : "Expert level"}
+            </p>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <label className="text-xs font-semibold text-white/40 uppercase tracking-widest">
+              Number of players
+            </label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setTargetPlayers(1)}
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border ${
+                  targetPlayers === 1
+                    ? "bg-white/20 border-white/50 text-white"
+                    : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80"
+                }`}
+              >
+                1 Player
+              </button>
+              <button
+                onClick={() => setTargetPlayers(2)}
+                className={`flex-1 py-3 rounded-lg text-sm font-medium transition-colors border ${
+                  targetPlayers === 2
+                    ? "bg-white/20 border-white/50 text-white"
+                    : "bg-white/5 border-white/10 text-white/50 hover:bg-white/10 hover:text-white/80"
+                }`}
+              >
+                2 Players
+              </button>
+            </div>
+            <p className="text-xs text-white/20 mt-1">
+              {targetPlayers === 1 ? "Solve it solo." : "Wait for a friend to join."}
             </p>
           </div>
 

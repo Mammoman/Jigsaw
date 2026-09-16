@@ -3,14 +3,17 @@
 
 import { useEffect, useState, use, useCallback } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Stage from "@/components/canvas/Stage";
 import TopNav from "@/components/hud/TopNav";
 import Dock from "@/components/hud/Dock";
 import RemoteCursors from "@/components/canvas/RemoteCursors";
 import { usePuzzleStore } from "@/stores/usePuzzleStore";
 import { usePuzzleMultiplayer } from "@/hooks/usePuzzleMultiplayer";
+import { useVoiceChat } from "@/hooks/useVoiceChat";
 import { supabase } from "@/lib/supabase/client";
 import { computeGrid } from "@/utils/boardGenerator";
+import RemoteAudio from "@/components/canvas/RemoteAudio";
 
 interface PuzzleRow {
   id: string;
@@ -28,6 +31,7 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const username = usePuzzleStore((s) => s.username);
   const playerCount = usePuzzleStore((s) => s.playerCount);
   const setUsername = usePuzzleStore((s) => s.setUsername);
+  const backgroundColor = usePuzzleStore((s) => s.backgroundColor);
 
   const { sendPointerMove, sendGroupMove, sendGroupMerge, sendReset } =
     usePuzzleMultiplayer(puzzleId);
@@ -37,8 +41,14 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const [notFound, setNotFound] = useState(false);
   const [tempName, setTempName] = useState("");
   const [copied, setCopied] = useState(false);
-  // Once the game has started it stays started, even if the other player drops.
-  const [hasStarted, setHasStarted] = useState(false);
+  const searchParams = useSearchParams();
+  const isSinglePlayer = searchParams.get("players") === "1";
+  const [hasStarted, setHasStarted] = useState(isSinglePlayer);
+  
+  // Initialize voice chat
+  const myId = usePuzzleStore((s) => s.username) || "unknown"; // actually myId should be consistent, maybe better pass it from somewhere?
+  // Wait, in usePuzzleMultiplayer it generates myId. I should just use `username` as id or let useVoiceChat generate it? Let's just pass puzzleId to useVoiceChat and generate myId inside useVoiceChat or pass it from here.
+  const { isVoiceEnabled, isMuted, remoteStreams, handleJoinVoice, handleLeaveVoice, toggleMute } = useVoiceChat(puzzleId, username || "guest");
 
   // Fetch puzzle metadata from Supabase
   useEffect(() => {
@@ -146,7 +156,13 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
   const showUsernameModal = !username;
 
   return (
-    <main className="w-screen h-[100dvh] overflow-hidden bg-[#111] relative">
+    <main className="w-screen h-[100dvh] overflow-hidden relative" style={{ backgroundColor }}>
+      {/* Texture Overlay */}
+      <div 
+        className="absolute inset-0 pointer-events-none opacity-20 mix-blend-multiply"
+        style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E")` }}
+      />
+
       {/* Username modal — shown before lobby */}
       {showUsernameModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md px-4">
@@ -259,7 +275,14 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
             sendGroupMove={sendGroupMove}
             sendGroupMerge={sendGroupMerge}
           />
-          <Dock onReset={handleReset} />
+          <Dock 
+            onReset={handleReset} 
+            isVoiceEnabled={isVoiceEnabled}
+            isMuted={isMuted}
+            onJoinVoice={handleJoinVoice}
+            onToggleMute={toggleMute}
+          />
+          <RemoteAudio streams={remoteStreams} />
         </>
       )}
     </main>
