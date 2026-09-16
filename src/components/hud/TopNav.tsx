@@ -60,8 +60,10 @@ export default function TopNav({
     setTimeout(() => setCopied(false), 2000);
   }, []);
 
+  const [menuOpen, setMenuOpen] = useState(false);
+
   return (
-    <div className={`absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-10 transition-opacity duration-500 ${isIdle ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+    <div className="absolute top-0 left-0 right-0 p-4 flex justify-between items-start z-10">
       {/* Left: Combined TopNav and Dock */}
       <div className="flex flex-col gap-2 pointer-events-auto">
         <div className="bg-black/60 backdrop-blur-md rounded-xl p-3 flex items-center gap-4 text-white border border-white/10 shadow-xl max-w-fit">
@@ -91,72 +93,88 @@ export default function TopNav({
               <><Share2 className="w-4 h-4" /><span className="hidden sm:inline">Invite</span></>
             )}
           </button>
+          
+          <div className="w-px h-6 bg-white/20" />
+          {/* Menu Toggle */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="flex items-center justify-center p-1 hover:bg-white/10 rounded transition-colors"
+            title="Menu"
+          >
+            <div className="flex flex-col gap-[3px] items-center justify-center w-5 h-5">
+              <span className="w-1 h-1 bg-white rounded-full"></span>
+              <span className="w-1 h-1 bg-white rounded-full"></span>
+              <span className="w-1 h-1 bg-white rounded-full"></span>
+            </div>
+          </button>
         </div>
 
         {/* Action Menu (formerly Dock) */}
-        <div className="bg-black/60 backdrop-blur-md rounded-xl p-1.5 flex items-center gap-1 text-white border border-white/10 shadow-xl max-w-fit">
-          <button
-            onClick={togglePreview}
-            className={`p-2 sm:p-2.5 rounded-lg transition-colors ${previewVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10"}`}
-            title="Toggle Image Preview"
-          >
-            <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-          <button
-            onClick={toggleShowEdgesOnly}
-            className={`p-2 sm:p-2.5 rounded-lg transition-colors ${showEdgesOnly ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10"}`}
-            title="Show Edges Only"
-          >
-            <Frame className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-          <div className="w-px h-5 bg-white/20 mx-0.5" />
-          <div className="flex gap-1 relative group">
-            <button className="p-2 sm:p-2.5 hover:bg-white/10 rounded-lg transition-colors">
-              <Palette className="w-4 h-4 sm:w-5 sm:h-5" />
+        {menuOpen && (
+          <div className="bg-black/60 backdrop-blur-md rounded-xl p-1.5 flex items-center gap-1 text-white border border-white/10 shadow-xl max-w-fit animate-in fade-in slide-in-from-top-2 duration-200">
+            <button
+              onClick={togglePreview}
+              className={`p-2 sm:p-2.5 rounded-lg transition-colors ${previewVisible ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10"}`}
+              title="Toggle Image Preview"
+            >
+              <ImageIcon className="w-4 h-4 sm:w-5 sm:h-5" />
             </button>
-            <div className="absolute top-full left-0 pt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex flex-col items-start">
-              <div className="flex gap-2 bg-black/80 backdrop-blur rounded-xl p-2 shadow-xl border border-white/10">
-                {BG_COLORS.map((bg) => (
-                  <button
-                    key={bg.value}
-                    className={`w-5 h-5 rounded-full border-2 ${backgroundColor === bg.value ? "border-white" : "border-transparent"}`}
-                    style={{ backgroundColor: bg.value }}
-                    onClick={() => setBackgroundColor(bg.value)}
-                    title={bg.label}
-                  />
-                ))}
+            <button
+              onClick={toggleShowEdgesOnly}
+              className={`p-2 sm:p-2.5 rounded-lg transition-colors ${showEdgesOnly ? "bg-blue-500/30 text-blue-400" : "hover:bg-white/10"}`}
+              title="Show Edges Only"
+            >
+              <Frame className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
+            <div className="w-px h-5 bg-white/20 mx-0.5" />
+            <div className="flex gap-1 relative group">
+              <button className="p-2 sm:p-2.5 hover:bg-white/10 rounded-lg transition-colors">
+                <Palette className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+              <div className="absolute top-full left-0 pt-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none group-hover:pointer-events-auto flex flex-col items-start">
+                <div className="flex gap-2 bg-black/80 backdrop-blur rounded-xl p-2 shadow-xl border border-white/10">
+                  {BG_COLORS.map((bg) => (
+                    <button
+                      key={bg.value}
+                      className={`w-5 h-5 rounded-full border-2 ${backgroundColor === bg.value ? "border-white" : "border-transparent"}`}
+                      style={{ backgroundColor: bg.value }}
+                      onClick={() => setBackgroundColor(bg.value)}
+                      title={bg.label}
+                    />
+                  ))}
+                </div>
               </div>
             </div>
+            <div className="w-px h-5 bg-white/20 mx-0.5" />
+            
+            {isVoiceEnabled ? (
+              <button
+                onClick={onToggleMute}
+                className={`p-2 sm:p-2.5 rounded-lg transition-colors ${isMuted ? "bg-red-500/30 text-red-400" : "bg-green-500/30 text-green-400"}`}
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
+              </button>
+            ) : (
+              <button
+                onClick={onJoinVoice}
+                className="p-2 sm:p-2.5 hover:bg-white/10 rounded-lg transition-colors"
+                title="Join Voice Chat"
+              >
+                <MicOff className="w-4 h-4 sm:w-5 sm:h-5 opacity-50" />
+              </button>
+            )}
+            
+            <div className="w-px h-5 bg-white/20 mx-0.5" />
+            <button
+              onClick={onReset}
+              className="p-2 sm:p-2.5 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"
+              title="Reset Puzzle"
+            >
+              <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
+            </button>
           </div>
-          <div className="w-px h-5 bg-white/20 mx-0.5" />
-          
-          {isVoiceEnabled ? (
-            <button
-              onClick={onToggleMute}
-              className={`p-2 sm:p-2.5 rounded-lg transition-colors ${isMuted ? "bg-red-500/30 text-red-400" : "bg-green-500/30 text-green-400"}`}
-              title={isMuted ? "Unmute" : "Mute"}
-            >
-              {isMuted ? <MicOff className="w-4 h-4 sm:w-5 sm:h-5" /> : <Mic className="w-4 h-4 sm:w-5 sm:h-5" />}
-            </button>
-          ) : (
-            <button
-              onClick={onJoinVoice}
-              className="p-2 sm:p-2.5 hover:bg-white/10 rounded-lg transition-colors"
-              title="Join Voice Chat"
-            >
-              <MicOff className="w-4 h-4 sm:w-5 sm:h-5 opacity-50" />
-            </button>
-          )}
-          
-          <div className="w-px h-5 bg-white/20 mx-0.5" />
-          <button
-            onClick={onReset}
-            className="p-2 sm:p-2.5 hover:bg-red-500/20 hover:text-red-400 rounded-lg transition-colors"
-            title="Reset Puzzle"
-          >
-            <RotateCcw className="w-4 h-4 sm:w-5 sm:h-5" />
-          </button>
-        </div>
+        )}
       </div>
 
       {/* Right: victory banner */}

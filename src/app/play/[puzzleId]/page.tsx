@@ -281,9 +281,6 @@ export default function PlayPage({ params }: PageProps<"/play/[puzzleId]">) {
             onJoinVoice={handleJoinVoice}
             onToggleMute={toggleMute}
           />
-          <div className={`absolute top-16 right-3 z-10 w-24 sm:w-36 md:w-48 rounded-lg shadow-2xl border-2 border-[#2a2a2a] overflow-hidden pointer-events-none transition-opacity duration-500 ${isIdle ? 'opacity-0' : 'opacity-70 hover:opacity-100'}`}>
-            <img src={puzzle.image_url} alt="Reference" className="w-full h-auto" />
-          </div>
           <RemoteCursors />
           <Stage
             imageUrl={puzzle.image_url}
